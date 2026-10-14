@@ -8,25 +8,31 @@ enum BoomeChrome {
     /// Dark brown that stays readable on the accent. White on this orange is too faint.
     static let ink = NSColor(srgbRed: 62.0 / 255.0, green: 42.0 / 255.0, blue: 28.0 / 255.0, alpha: 1)
 
-    static func sidebarFill(for appearance: NSAppearance) -> NSColor {
-        if dark(appearance) {
-            return NSColor(srgbRed: 44.0 / 255.0, green: 40.0 / 255.0, blue: 38.0 / 255.0, alpha: 1)
+    /// Ghostty's default background, used until the loaded config answers.
+    static let fallbackBackground = NSColor(srgbRed: 40.0 / 255.0, green: 44.0 / 255.0, blue: 52.0 / 255.0, alpha: 1)
+
+    static func isDark(_ color: NSColor) -> Bool {
+        guard let rgb = color.usingColorSpace(.sRGB) else { return true }
+        func lin(_ channel: CGFloat) -> CGFloat {
+            channel <= 0.04045 ? channel / 12.92 : pow((channel + 0.055) / 1.055, 2.4)
         }
-        return NSColor(srgbRed: 243.0 / 255.0, green: 230.0 / 255.0, blue: 204.0 / 255.0, alpha: 1)
+        let luminance = 0.2126 * lin(rgb.redComponent) + 0.7152 * lin(rgb.greenComponent) + 0.0722 * lin(rgb.blueComponent)
+        return luminance < 0.45
     }
 
-    static func quietFill(for appearance: NSAppearance) -> NSColor {
-        if dark(appearance) {
-            return NSColor(white: 1, alpha: 0.08)
-        }
-        return NSColor(white: 1, alpha: 0.72)
+    static func quietFill(on background: NSColor) -> NSColor {
+        isDark(background) ? NSColor(white: 1, alpha: 0.08) : NSColor(white: 0, alpha: 0.06)
     }
 
-    static func text(selected: Bool, appearance: NSAppearance) -> NSColor {
-        if selected || !dark(appearance) {
+    static func hairline(on background: NSColor) -> NSColor {
+        isDark(background) ? NSColor(white: 1, alpha: 0.12) : NSColor(white: 0, alpha: 0.1)
+    }
+
+    static func text(selected: Bool, on background: NSColor) -> NSColor {
+        if selected || !isDark(background) {
             return ink
         }
-        return NSColor(srgbRed: 0.96, green: 0.94, blue: 0.91, alpha: 1)
+        return NSColor(srgbRed: 0.93, green: 0.91, blue: 0.88, alpha: 1)
     }
 
     static func icon(pointSize: CGFloat) -> NSImage {
@@ -48,7 +54,4 @@ enum BoomeChrome {
         return NSImage(size: NSSize(width: 32, height: 32))
     }()
 
-    private static func dark(_ appearance: NSAppearance) -> Bool {
-        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-    }
 }

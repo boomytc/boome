@@ -249,6 +249,22 @@ final class GhosttyHost: NSObject {
         )
     }
 
+    /// Resolved `background` from the config libghostty already loaded.
+    func terminalBackground() -> NSColor {
+        guard let config else { return BoomeChrome.fallbackBackground }
+        var color = ghostty_config_color_s()
+        let key = "background"
+        guard ghostty_config_get(config, &color, key, UInt(key.utf8.count)) else {
+            return BoomeChrome.fallbackBackground
+        }
+        return NSColor(
+            srgbRed: CGFloat(color.r) / 255,
+            green: CGFloat(color.g) / 255,
+            blue: CGFloat(color.b) / 255,
+            alpha: 1
+        )
+    }
+
     func applySystemColorScheme() {
         guard let app else { return }
         let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua

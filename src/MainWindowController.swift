@@ -58,6 +58,7 @@ final class TabSidebar: NSView {
     private var rows: [NSButton] = []
     private var labels: [String] = []
     private var selected = 0
+    private var surfaceBackground = BoomeChrome.fallbackBackground
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -110,7 +111,7 @@ final class TabSidebar: NSView {
 
         NSLayoutConstraint.activate([
             headerIcon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-            headerIcon.topAnchor.constraint(equalTo: topAnchor, constant: 14),
+            headerIcon.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 8),
             headerIcon.widthAnchor.constraint(equalToConstant: 28),
             headerIcon.heightAnchor.constraint(equalToConstant: 28),
             headerTitle.leadingAnchor.constraint(equalTo: headerIcon.trailingAnchor, constant: 8),
@@ -170,11 +171,15 @@ final class TabSidebar: NSView {
         }
     }
 
+    func use(background: NSColor) {
+        surfaceBackground = background
+        refreshAppearance()
+    }
+
     func refreshAppearance() {
-        let appearance = effectiveAppearance
-        layer?.backgroundColor = BoomeChrome.sidebarFill(for: appearance).cgColor
-        headerTitle.textColor = BoomeChrome.text(selected: false, appearance: appearance)
-        addButton.layer?.backgroundColor = BoomeChrome.quietFill(for: appearance).cgColor
+        layer?.backgroundColor = surfaceBackground.cgColor
+        headerTitle.textColor = BoomeChrome.text(selected: false, on: surfaceBackground)
+        addButton.layer?.backgroundColor = BoomeChrome.quietFill(on: surfaceBackground).cgColor
         addButton.attributedTitle = styled("New Tab", selected: false, centered: true)
         for (offset, row) in rows.enumerated() where labels.indices.contains(offset) {
             style(row, label: labels[offset], selected: offset == selected)
@@ -193,7 +198,7 @@ final class TabSidebar: NSView {
         style.alignment = centered ? .center : .left
         return NSAttributedString(string: text, attributes: [
             .font: NSFont.systemFont(ofSize: 13, weight: selected ? .semibold : .medium),
-            .foregroundColor: BoomeChrome.text(selected: selected, appearance: effectiveAppearance),
+            .foregroundColor: BoomeChrome.text(selected: selected, on: surfaceBackground),
             .paragraphStyle: style,
         ])
     }
@@ -218,6 +223,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
     private let host = GhosttyHost.shared
     private let sidebar = TabSidebar()
     private let terminalHost = NSView()
+    private let separator = NSView()
     private var tabs: [TerminalTab] = []
     private var selected = 0
     private var nextOrdinal = 1
@@ -233,16 +239,19 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         window.title = "Boome"
         window.minSize = NSSize(width: 640, height: 360)
         window.isReleasedWhenClosed = false
-        window.titlebarAppearsTransparent = false
+        window.styleMask.insert(.fullSizeContentView)
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
         super.init(window: window)
         window.delegate = self
         host.delegate = self
         buildChrome()
+        applyTerminalChrome()
         openTab(replacingLast: false)
         appearanceObserver = NSApp.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, _ in
             DispatchQueue.main.async {
                 GhosttyHost.shared.applySystemColorScheme()
-                self?.sidebar.refreshAppearance()
+                self?.applyTerminalChrome()
             }
         }
     }
@@ -293,8 +302,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         content.addSubview(sidebar)
         content.addSubview(terminalHost)
 
-        let separator = NSBox()
-        separator.boxType = .separator
+        separator.wantsLayer = true
         separator.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(separator)
 
@@ -309,12 +317,21 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
             separator.widthAnchor.constraint(equalToConstant: 1),
             terminalHost.leadingAnchor.constraint(equalTo: separator.trailingAnchor),
             terminalHost.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            terminalHost.topAnchor.constraint(equalTo: content.topAnchor),
+            terminalHost.topAnchor.constraint(equalTo: content.safeAreaLayoutGuide.topAnchor),
             terminalHost.bottomAnchor.constraint(equalTo: content.bottomAnchor),
         ])
 
         sidebar.onSelect = { [weak self] index in self?.select(index) }
         sidebar.onNew = { [weak self] in self?.newTab() }
+    }
+
+    /// Sidebar and title bar use the terminal background, so the window is one surface.
+    private func applyTerminalChrome() {
+        let background = host.terminalBackground()
+        window?.backgroundColor = background
+        window?.appearance = NSAppearance(named: BoomeChrome.isDark(background) ? .darkAqua : .aqua)
+        separator.layer?.backgroundColor = BoomeChrome.hairline(on: background).cgColor
+        sidebar.use(background: background)
     }
 
     private func openTab(replacingLast: Bool) {
