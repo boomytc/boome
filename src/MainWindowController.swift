@@ -30,33 +30,376 @@ final class TerminalTab {
 /// short document to the bottom of the sidebar.
 private final class TopClipView: NSClipView {
     override var isFlipped: Bool { true }
+    override var mouseDownCanMoveWindow: Bool { true }
 }
 
-private final class RowCell: NSButtonCell {
-    override func imageRect(forBounds rect: NSRect) -> NSRect {
-        super.imageRect(forBounds: padded(rect))
+/// Sidebar drawing of one tab. The window title stays the full string.
+/// A `user@host:path` title is split so the path is the line you scan;
+/// tail truncation in a 200-point column was hiding it.
+struct TabPresentation: Equatable {
+    var primary: String
+    var secondary: String?
+    var accessibility: String
+
+    static func make(label: String, customTitle: Bool) -> TabPresentation {
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !customTitle, let split = splitShellTitle(trimmed) ?? splitPath(trimmed) {
+            return split
+        }
+        return TabPresentation(primary: label, secondary: nil, accessibility: label)
     }
 
-    override func titleRect(forBounds rect: NSRect) -> NSRect {
-        super.titleRect(forBounds: padded(rect))
+    /// A title that is only a path still hides its last component when the
+    /// line is tail-truncated. The parent path stays on the second line.
+    private static func splitPath(_ title: String) -> TabPresentation? {
+        guard title.hasPrefix("/") || title.hasPrefix("~") else { return nil }
+        let name = directoryName(title)
+        guard !name.isEmpty, name != title else { return nil }
+        let parent = (title as NSString).deletingLastPathComponent
+        let secondary = (parent.isEmpty || parent == "/" || parent == "~") ? nil : parent
+        return TabPresentation(primary: name, secondary: secondary, accessibility: title)
     }
 
-    private func padded(_ rect: NSRect) -> NSRect {
-        NSRect(x: rect.minX + 8, y: rect.minY + 2, width: max(0, rect.width - 16), height: max(0, rect.height - 4))
+    private static func splitShellTitle(_ title: String) -> TabPresentation? {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let at = trimmed.firstIndex(of: "@") else { return nil }
+        let afterAt = trimmed.index(after: at)
+        guard afterAt < trimmed.endIndex,
+              let colon = trimmed[afterAt...].firstIndex(of: ":") else { return nil }
+        let userHost = String(trimmed[..<colon])
+        let path = trimmed[trimmed.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+        let name = directoryName(path)
+        guard !userHost.isEmpty, !name.isEmpty else { return nil }
+        return TabPresentation(primary: name, secondary: userHost, accessibility: trimmed)
+    }
+
+    private static func directoryName(_ path: String) -> String {
+        if path.isEmpty { return "" }
+        if path == "~" || path == "~/" { return "~" }
+        if path == "/" { return "/" }
+        let name = (path as NSString).lastPathComponent
+        if name.isEmpty || name == "/" { return "~" }
+        return name
+    }
+}
+
+private func paintFill(_ layer: CALayer?, color: NSColor, animated: Bool) {
+    guard let layer else { return }
+    let next = color.cgColor
+    let duration: CFTimeInterval = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.14
+    if animated, duration > 0 {
+        let animation = CABasicAnimation(keyPath: "backgroundColor")
+        animation.fromValue = layer.presentation()?.backgroundColor ?? layer.backgroundColor
+        animation.toValue = next
+        animation.duration = duration
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        layer.add(animation, forKey: "fill")
+    }
+    layer.backgroundColor = next
+}
+
+/// One sidebar row. The same ghost on every row carried no information and
+/// ate the title, so the row is type only. Orange is the selected fill.
+private final class TabRowView: NSView {
+    var onSelect: (() -> Void)?
+    var onClose: (() -> Void)?
+
+    private var model = TabPresentation(primary: "", secondary: nil, accessibility: "")
+    private var surfaceBackground = BoomeChrome.fallbackBackground
+    private var selected = false
+    private var hovered = false
+    private var tracking: NSTrackingArea?
+
+    override var isFlipped: Bool { true }
+    override var acceptsFirstResponder: Bool { false }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.cornerRadius = 8
+        layer?.masksToBounds = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+        setAccessibilityRole(.button)
+        setAccessibilityCustomActions([
+            NSAccessibilityCustomAction(name: "Close Tab") { [weak self] in
+                self?.onClose?()
+                return true
+            },
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not used")
+    }
+
+    func show(_ model: TabPresentation, selected: Bool, background: NSColor, animated: Bool) {
+        let selectionChanged = self.selected != selected
+        self.model = model
+        self.selected = selected
+        surfaceBackground = background
+        toolTip = model.accessibility
+        setAccessibilityLabel(model.accessibility)
+        setAccessibilitySelected(selected)
+        applyChrome(animated: animated && selectionChanged)
+    }
+
+    func use(background: NSColor) {
+        surfaceBackground = background
+        applyChrome(animated: false)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        tracking = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        hovered = true
+        applyChrome(animated: true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hovered = false
+        applyChrome(animated: true)
+    }
+
+    override func mouseDown(with event: NSEvent) {}
+
+    override func mouseUp(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        guard bounds.contains(point) else { return }
+        if showsClose, closeHitRect.contains(point) {
+            onClose?()
+            return
+        }
+        onSelect?()
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        let menu = NSMenu()
+        let item = NSMenuItem(title: "Close Tab", action: #selector(closePressed(_:)), keyEquivalent: "w")
+        item.keyEquivalentModifierMask = .command
+        item.target = self
+        menu.addItem(item)
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let showClose = selected || hovered
+        let left: CGFloat = 12
+        let right: CGFloat = showClose ? 30 : 12
+        let width = max(0, bounds.width - left - right)
+        let primaryFont = NSFont.systemFont(ofSize: 13, weight: selected ? .semibold : .medium)
+        let primaryStyle = NSMutableParagraphStyle()
+        primaryStyle.lineBreakMode = .byTruncatingTail
+        let primaryAttrs: [NSAttributedString.Key: Any] = [
+            .font: primaryFont,
+            .foregroundColor: BoomeChrome.text(selected: selected, on: surfaceBackground),
+            .paragraphStyle: primaryStyle,
+        ]
+        let hasSecondary = model.secondary != nil
+        let primaryHeight: CGFloat = 18
+        let secondaryHeight: CGFloat = hasSecondary ? 14 : 0
+        let gap: CGFloat = hasSecondary ? 2 : 0
+        let block = primaryHeight + gap + secondaryHeight
+        let top = ((bounds.height - block) / 2).rounded()
+        (model.primary as NSString).draw(
+            with: NSRect(x: left, y: top, width: width, height: primaryHeight),
+            options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+            attributes: primaryAttrs
+        )
+        if let secondary = model.secondary {
+            let secondaryStyle = NSMutableParagraphStyle()
+            secondaryStyle.lineBreakMode = .byTruncatingMiddle
+            let secondaryAttrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 11, weight: .regular),
+                .foregroundColor: BoomeChrome.secondaryText(selected: selected, on: surfaceBackground),
+                .paragraphStyle: secondaryStyle,
+            ]
+            (secondary as NSString).draw(
+                with: NSRect(x: left, y: top + primaryHeight + gap, width: width, height: secondaryHeight),
+                options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+                attributes: secondaryAttrs
+            )
+        }
+        guard showsClose, let symbol = TabRowView.closeImage(BoomeChrome.text(selected: selected, on: surfaceBackground)) else {
+            return
+        }
+        let side: CGFloat = 11
+        symbol.draw(
+            in: NSRect(
+                x: bounds.width - 14 - side,
+                y: ((bounds.height - side) / 2).rounded(),
+                width: side,
+                height: side
+            ),
+            from: .zero,
+            operation: .sourceOver,
+            fraction: 1,
+            respectFlipped: true,
+            hints: nil
+        )
+    }
+
+    private var showsClose: Bool { selected || hovered }
+
+    /// Wider than the glyph so the close affordance is the trailing edge, not a 10-point mark.
+    private var closeHitRect: NSRect {
+        NSRect(x: bounds.width - 36, y: 0, width: 36, height: bounds.height)
+    }
+
+    private func applyChrome(animated: Bool) {
+        let fill: NSColor
+        if selected {
+            fill = BoomeChrome.accent
+        } else if hovered {
+            fill = BoomeChrome.quietFill(on: surfaceBackground)
+        } else {
+            fill = .clear
+        }
+        paintFill(layer, color: fill, animated: animated)
+        needsDisplay = true
+    }
+
+    private static func closeImage(_ color: NSColor) -> NSImage? {
+        let symbol = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close Tab")
+        let size = NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
+        let palette = NSImage.SymbolConfiguration(paletteColors: [color])
+        return symbol?.withSymbolConfiguration(size.applying(palette))
+    }
+
+    @objc private func closePressed(_ sender: Any?) {
+        onClose?()
+    }
+}
+
+/// Weak action: no resting fill, so the selected tab is the only solid shape.
+private final class QuietAddButton: NSView {
+    var onPress: (() -> Void)?
+
+    private var surfaceBackground = BoomeChrome.fallbackBackground
+    private var hovered = false
+    private var tracking: NSTrackingArea?
+
+    override var isFlipped: Bool { true }
+    override var acceptsFirstResponder: Bool { false }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.cornerRadius = 8
+        layer?.masksToBounds = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+        toolTip = "New Tab (⌘T)"
+        setAccessibilityRole(.button)
+        setAccessibilityLabel("New Tab")
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not used")
+    }
+
+    func use(background: NSColor) {
+        surfaceBackground = background
+        paint(animated: false)
+        needsDisplay = true
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        tracking = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        hovered = true
+        paint(animated: true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hovered = false
+        paint(animated: true)
+    }
+
+    override func mouseDown(with event: NSEvent) {}
+
+    override func mouseUp(with event: NSEvent) {
+        let inside = bounds.contains(convert(event.locationInWindow, from: nil))
+        if inside { onPress?() }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let color = BoomeChrome.text(selected: false, on: surfaceBackground)
+        let iconSide: CGFloat = 12
+        let iconY = ((bounds.height - iconSide) / 2).rounded()
+        if let symbol = Self.plusImage(color) {
+            symbol.draw(
+                in: NSRect(x: 12, y: iconY, width: iconSide, height: iconSide),
+                from: .zero,
+                operation: .sourceOver,
+                fraction: 1,
+                respectFlipped: true,
+                hints: nil
+            )
+        }
+        let style = NSMutableParagraphStyle()
+        style.lineBreakMode = .byTruncatingTail
+        let titleHeight: CGFloat = 16
+        let titleY = ((bounds.height - titleHeight) / 2).rounded()
+        ("New Tab" as NSString).draw(
+            with: NSRect(x: 12 + iconSide + 6, y: titleY, width: max(0, bounds.width - 42), height: titleHeight),
+            options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 13, weight: .medium),
+                .foregroundColor: color,
+                .paragraphStyle: style,
+            ]
+        )
+    }
+
+    private func paint(animated: Bool) {
+        let fill = hovered ? BoomeChrome.quietFill(on: surfaceBackground) : .clear
+        paintFill(layer, color: fill, animated: animated)
+    }
+
+    private static func plusImage(_ color: NSColor) -> NSImage? {
+        let symbol = NSImage(systemSymbolName: "plus", accessibilityDescription: "New Tab")
+        let size = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+        let palette = NSImage.SymbolConfiguration(paletteColors: [color])
+        return symbol?.withSymbolConfiguration(size.applying(palette))
     }
 }
 
 final class TabSidebar: NSView {
     var onSelect: ((Int) -> Void)?
+    var onClose: ((Int) -> Void)?
     var onNew: (() -> Void)?
 
     private let scroll = NSScrollView()
     private let stack = NSStackView()
-    private let addButton = NSButton()
-    private var rows: [NSButton] = []
-    private var labels: [String] = []
+    private let addButton = QuietAddButton()
+    private var rowViews: [TabRowView] = []
     private var selected = 0
     private var surfaceBackground = BoomeChrome.fallbackBackground
+
+    override var mouseDownCanMoveWindow: Bool { true }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -65,48 +408,39 @@ final class TabSidebar: NSView {
         stack.orientation = .vertical
         stack.alignment = .width
         stack.spacing = 4
-        stack.edgeInsets = NSEdgeInsets(top: 4, left: 10, bottom: 8, right: 10)
+        stack.edgeInsets = NSEdgeInsets(top: 4, left: 8, bottom: 8, right: 8)
         stack.setHuggingPriority(.required, for: .vertical)
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         scroll.drawsBackground = false
+        scroll.backgroundColor = .clear
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = false
         scroll.autohidesScrollers = true
+        scroll.scrollerStyle = .overlay
+        scroll.automaticallyAdjustsContentInsets = false
+        scroll.contentInsets = NSEdgeInsets()
         let clip = TopClipView()
         clip.drawsBackground = false
         scroll.contentView = clip
-        scroll.drawsBackground = false
-        scroll.backgroundColor = .clear
         scroll.documentView = stack
         scroll.translatesAutoresizingMaskIntoConstraints = false
         addSubview(scroll)
 
-        addButton.image = plusImage()
-        addButton.imagePosition = .imageLeading
-        addButton.imageHugsTitle = true
-        addButton.imageScaling = .scaleNone
-        addButton.alignment = .center
-        addButton.isBordered = false
-        addButton.wantsLayer = true
-        addButton.layer?.cornerRadius = 8
-        addButton.layer?.masksToBounds = true
-        addButton.target = self
-        addButton.action = #selector(addPressed)
         addButton.translatesAutoresizingMaskIntoConstraints = false
-        addButton.setAccessibilityLabel("New Tab")
+        addButton.onPress = { [weak self] in self?.onNew?() }
         addSubview(addButton)
 
         NSLayoutConstraint.activate([
-            scroll.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 6),
+            scroll.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 4),
             scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scroll.bottomAnchor.constraint(equalTo: addButton.topAnchor, constant: -8),
+            scroll.bottomAnchor.constraint(equalTo: addButton.topAnchor, constant: -4),
             stack.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
-            addButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            addButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-            addButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
-            addButton.heightAnchor.constraint(equalToConstant: 34),
+            addButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            addButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            addButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
+            addButton.heightAnchor.constraint(equalToConstant: 36),
         ])
         refreshAppearance()
     }
@@ -121,34 +455,26 @@ final class TabSidebar: NSView {
         refreshAppearance()
     }
 
-    func reload(labels: [String], selected index: Int) {
-        self.labels = labels
+    func reload(rows: [TabPresentation], selected index: Int) {
+        let animateSelection = !rowViews.isEmpty && index != selected
         selected = index
-        for row in rows { row.removeFromSuperview() }
-        rows.removeAll()
-        for (offset, label) in labels.enumerated() {
-            let button = NSButton()
-            button.cell = RowCell(textCell: "")
-            button.image = BoomeChrome.icon(pointSize: 18)
-            button.imagePosition = .imageLeading
-            button.imageScaling = .scaleNone
-            button.imageHugsTitle = true
-            button.alignment = .left
-            button.isBordered = false
-            button.lineBreakMode = .byTruncatingTail
-            button.wantsLayer = true
-            button.layer?.cornerRadius = 8
-            button.layer?.masksToBounds = true
-            button.target = self
-            button.action = #selector(rowPressed(_:))
-            button.tag = offset
-            button.refusesFirstResponder = true
-            button.translatesAutoresizingMaskIntoConstraints = false
-            button.setAccessibilityLabel(label)
-            style(button, label: label, selected: offset == index)
-            stack.addArrangedSubview(button)
-            button.heightAnchor.constraint(equalToConstant: 34).isActive = true
-            rows.append(button)
+        if rowViews.count != rows.count {
+            for row in rowViews { row.removeFromSuperview() }
+            rowViews.removeAll()
+            for (offset, model) in rows.enumerated() {
+                let row = TabRowView()
+                row.onSelect = { [weak self] in self?.onSelect?(offset) }
+                row.onClose = { [weak self] in self?.onClose?(offset) }
+                row.translatesAutoresizingMaskIntoConstraints = false
+                stack.addArrangedSubview(row)
+                row.heightAnchor.constraint(equalToConstant: 46).isActive = true
+                row.show(model, selected: offset == index, background: surfaceBackground, animated: false)
+                rowViews.append(row)
+            }
+            return
+        }
+        for (offset, model) in rows.enumerated() {
+            rowViews[offset].show(model, selected: offset == index, background: surfaceBackground, animated: animateSelection)
         }
     }
 
@@ -157,45 +483,12 @@ final class TabSidebar: NSView {
         refreshAppearance()
     }
 
-    func refreshAppearance() {
+    private func refreshAppearance() {
         layer?.backgroundColor = surfaceBackground.cgColor
-        addButton.layer?.backgroundColor = BoomeChrome.quietFill(on: surfaceBackground).cgColor
-        addButton.attributedTitle = styled("New Tab", selected: false, centered: true)
-        for (offset, row) in rows.enumerated() where labels.indices.contains(offset) {
-            style(row, label: labels[offset], selected: offset == selected)
+        addButton.use(background: surfaceBackground)
+        for row in rowViews {
+            row.use(background: surfaceBackground)
         }
-    }
-
-    private func style(_ button: NSButton, label: String, selected: Bool) {
-        button.attributedTitle = styled(label, selected: selected, centered: false)
-        button.layer?.backgroundColor = (selected ? BoomeChrome.accent : NSColor.clear).cgColor
-        button.setAccessibilitySelected(selected)
-    }
-
-    private func styled(_ text: String, selected: Bool, centered: Bool) -> NSAttributedString {
-        let style = NSMutableParagraphStyle()
-        style.lineBreakMode = .byTruncatingTail
-        style.alignment = centered ? .center : .left
-        return NSAttributedString(string: text, attributes: [
-            .font: NSFont.systemFont(ofSize: 13, weight: selected ? .semibold : .medium),
-            .foregroundColor: BoomeChrome.text(selected: selected, on: surfaceBackground),
-            .paragraphStyle: style,
-        ])
-    }
-
-    private func plusImage() -> NSImage? {
-        let symbol = NSImage(systemSymbolName: "plus", accessibilityDescription: "New Tab")
-        let palette = NSImage.SymbolConfiguration(paletteColors: [BoomeChrome.accent])
-        let size = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
-        return symbol?.withSymbolConfiguration(size.applying(palette))
-    }
-
-    @objc private func rowPressed(_ sender: NSButton) {
-        onSelect?(sender.tag)
-    }
-
-    @objc private func addPressed() {
-        onNew?()
     }
 }
 
@@ -253,8 +546,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
     }
 
     func closeCurrentTab() {
-        guard tabs.indices.contains(selected) else { return }
-        host.requestClose(tabs[selected].view.surface)
+        closeTab(at: selected)
+    }
+
+    private func closeTab(at index: Int) {
+        guard tabs.indices.contains(index) else { return }
+        host.requestClose(tabs[index].view.surface)
     }
 
     func cycle(_ cycle: GhosttyHost.Cycle) {
@@ -302,6 +599,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         ])
 
         sidebar.onSelect = { [weak self] index in self?.select(index) }
+        sidebar.onClose = { [weak self] index in self?.closeTab(at: index) }
         sidebar.onNew = { [weak self] in self?.newTab() }
     }
 
@@ -357,7 +655,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
     }
 
     private func reloadSidebar() {
-        sidebar.reload(labels: tabs.map(\.label), selected: selected)
+        sidebar.reload(
+            rows: tabs.map { TabPresentation.make(label: $0.label, customTitle: $0.tabTitle != nil) },
+            selected: selected
+        )
         if tabs.indices.contains(selected) {
             window?.title = tabs[selected].label
         }
@@ -366,6 +667,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
     private func remove(_ tab: TerminalTab) {
         guard let index = tabs.firstIndex(where: { $0 === tab }) else { return }
         let wasLast = tabs.count == 1
+        let closingSelected = index == selected
         if wasLast {
             openTab(replacingLast: true)
         }
@@ -378,8 +680,16 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
             }
             return
         }
-        let next = min(index, tabs.count - 1)
-        select(next)
+        if closingSelected {
+            select(min(index, tabs.count - 1))
+            return
+        }
+        // A background tab closed under the visible one. Keep that shell.
+        if index < selected {
+            selected -= 1
+        }
+        reloadSidebar()
+        focusSelected()
     }
 
     func ghosttyHostOpenNewTab(_ host: GhosttyHost) { newTab() }

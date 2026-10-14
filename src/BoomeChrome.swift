@@ -35,6 +35,16 @@ enum BoomeChrome {
         return NSColor(srgbRed: 0.93, green: 0.91, blue: 0.88, alpha: 1)
     }
 
+    /// Second line under a tab name. On the accent, full ink stays readable;
+    /// a faded ink blends into the orange and drops below the primary.
+    static func secondaryText(selected: Bool, on background: NSColor) -> NSColor {
+        if selected { return ink }
+        if isDark(background) {
+            return NSColor(srgbRed: 0.72, green: 0.70, blue: 0.66, alpha: 1)
+        }
+        return NSColor(srgbRed: 0.38, green: 0.32, blue: 0.27, alpha: 1)
+    }
+
     static func icon(pointSize: CGFloat) -> NSImage {
         let image = (baseIcon.copy() as? NSImage) ?? baseIcon
         image.size = NSSize(width: pointSize, height: pointSize)
