@@ -219,8 +219,11 @@ private func paintFill(_ layer: CALayer?, color: NSColor, animated: Bool, durati
 private final class TabRowView: NSView {
     var onSelect: (() -> Void)?
     var onClose: (() -> Void)?
+    var onMenu: ((NSEvent) -> Void)?
 
     private var model = TabPresentation(primary: "", secondary: nil, accessibility: "")
+    private var compact = false
+    private var widthConstraint: NSLayoutConstraint?
     private var surfaceBackground = BoomeChrome.fallbackBackground
     private var selected = false
     private var hovered = false
@@ -267,6 +270,22 @@ private final class TabRowView: NSView {
         let constraint = heightAnchor.constraint(equalToConstant: TabPresentation.rowHeight(hasSecondary: model.secondary != nil))
         constraint.isActive = true
         heightConstraint = constraint
+    }
+
+    func applyLayout(compact: Bool) {
+        self.compact = compact
+        heightConstraint?.constant = compact ? 28 : TabPresentation.rowHeight(hasSecondary: model.secondary != nil)
+        if compact {
+            if widthConstraint == nil {
+                widthConstraint = widthAnchor.constraint(equalToConstant: 148)
+            setContentHuggingPriority(.required, for: .horizontal)
+            setContentCompressionResistancePriority(.required, for: .horizontal)
+            }
+            widthConstraint?.isActive = true
+        } else {
+            widthConstraint?.isActive = false
+        }
+        needsDisplay = true
     }
 
     /// Keyboard landing. A brief lift, then back to the selection fill.
@@ -325,12 +344,7 @@ private final class TabRowView: NSView {
     }
 
     override func rightMouseDown(with event: NSEvent) {
-        let menu = NSMenu()
-        let item = NSMenuItem(title: "Close Tab", action: #selector(closePressed(_:)), keyEquivalent: "w")
-        item.keyEquivalentModifierMask = .command
-        item.target = self
-        menu.addItem(item)
-        NSMenu.popUpContextMenu(menu, with: event, for: self)
+        onMenu?(event)
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -346,6 +360,16 @@ private final class TabRowView: NSView {
             .foregroundColor: BoomeChrome.text(selected: selected, on: surfaceBackground),
             .paragraphStyle: primaryStyle,
         ]
+        if compact {
+            let line = model.secondary.map { "\(model.primary)  \($0)" } ?? model.primary
+            let lineHeight: CGFloat = 18
+            let lineY = ((bounds.height - lineHeight) / 2).rounded()
+            (line as NSString).draw(
+                with: NSRect(x: left, y: lineY, width: width, height: lineHeight),
+                options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+                attributes: primaryAttrs
+            )
+        } else {
         let hasSecondary = model.secondary != nil
         let primaryHeight: CGFloat = 18
         let secondaryHeight: CGFloat = hasSecondary ? 14 : 0
@@ -370,6 +394,7 @@ private final class TabRowView: NSView {
                 options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
                 attributes: secondaryAttrs
             )
+        }
         }
         guard showsClose, let symbol = TabRowView.closeImage(BoomeChrome.text(selected: selected, on: surfaceBackground)) else {
             return
@@ -427,6 +452,7 @@ private final class QuietAddButton: NSView {
     var onPress: (() -> Void)?
 
     private var surfaceBackground = BoomeChrome.fallbackBackground
+    private var compact = false
     private var hovered = false
     private var tracking: NSTrackingArea?
 
@@ -452,6 +478,12 @@ private final class QuietAddButton: NSView {
     func use(background: NSColor) {
         surfaceBackground = background
         paint(animated: false)
+        needsDisplay = true
+    }
+
+    func setCompact(_ compact: Bool) {
+        self.compact = compact
+        toolTip = compact ? "New Tab" : "New Tab (⌘T)"
         needsDisplay = true
     }
 
@@ -488,10 +520,11 @@ private final class QuietAddButton: NSView {
     override func draw(_ dirtyRect: NSRect) {
         let color = BoomeChrome.text(selected: false, on: surfaceBackground)
         let iconSide: CGFloat = 12
+        let iconX = compact ? ((bounds.width - iconSide) / 2).rounded() : 12
         let iconY = ((bounds.height - iconSide) / 2).rounded()
         if let symbol = Self.plusImage(color) {
             symbol.draw(
-                in: NSRect(x: 12, y: iconY, width: iconSide, height: iconSide),
+                in: NSRect(x: iconX, y: iconY, width: iconSide, height: iconSide),
                 from: .zero,
                 operation: .sourceOver,
                 fraction: 1,
@@ -499,6 +532,7 @@ private final class QuietAddButton: NSView {
                 hints: nil
             )
         }
+        if compact { return }
         let style = NSMutableParagraphStyle()
         style.lineBreakMode = .byTruncatingTail
         let titleHeight: CGFloat = 16
@@ -528,9 +562,15 @@ private final class QuietAddButton: NSView {
 }
 
 final class TabSidebar: NSView {
+    enum Axis {
+        case vertical
+        case horizontal
+    }
+
     var onSelect: ((Int) -> Void)?
     var onClose: ((Int) -> Void)?
     var onNew: (() -> Void)?
+    var onMenu: ((Int, NSEvent) -> Void)?
 
     private let scroll = NSScrollView()
     private let stack = NSStackView()
@@ -538,6 +578,9 @@ final class TabSidebar: NSView {
     private var rowViews: [TabRowView] = []
     private var selected = 0
     private var surfaceBackground = BoomeChrome.fallbackBackground
+    private var axis: Axis = .vertical
+    private var chromeConstraints: [NSLayoutConstraint] = []
+    private var stackFit: NSLayoutConstraint?
 
     override var mouseDownCanMoveWindow: Bool { true }
 
@@ -550,6 +593,7 @@ final class TabSidebar: NSView {
         stack.spacing = 4
         stack.edgeInsets = NSEdgeInsets(top: 4, left: 8, bottom: 8, right: 8)
         stack.setHuggingPriority(.required, for: .vertical)
+        stack.setHuggingPriority(.required, for: .horizontal)
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         scroll.drawsBackground = false
@@ -570,19 +614,28 @@ final class TabSidebar: NSView {
         addButton.translatesAutoresizingMaskIntoConstraints = false
         addButton.onPress = { [weak self] in self?.onNew?() }
         addSubview(addButton)
-
-        NSLayoutConstraint.activate([
-            scroll.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 4),
-            scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scroll.bottomAnchor.constraint(equalTo: addButton.topAnchor, constant: -4),
-            stack.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
-            addButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            addButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            addButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
-            addButton.heightAnchor.constraint(equalToConstant: 36),
-        ])
+        applyAxisChrome()
         refreshAppearance()
+    }
+
+    /// Same tabs, turned on their side. Vertical is the sidebar; horizontal is the top bar.
+    func setAxis(_ axis: Axis) {
+        guard axis != self.axis else { return }
+        self.axis = axis
+        let horizontal = axis == .horizontal
+        stack.orientation = horizontal ? .horizontal : .vertical
+        stack.alignment = horizontal ? .height : .width
+        stack.distribution = horizontal ? .gravityAreas : .fill
+        stack.edgeInsets = horizontal
+            ? NSEdgeInsets(top: 6, left: 8, bottom: 6, right: 4)
+            : NSEdgeInsets(top: 4, left: 8, bottom: 8, right: 8)
+        scroll.hasVerticalScroller = !horizontal
+        scroll.hasHorizontalScroller = horizontal
+        applyAxisChrome()
+        addButton.setCompact(horizontal)
+        for row in rowViews {
+            row.applyLayout(compact: horizontal)
+        }
     }
 
     @available(*, unavailable)
@@ -605,10 +658,12 @@ final class TabSidebar: NSView {
                 let row = TabRowView()
                 row.onSelect = { [weak self] in self?.onSelect?(offset) }
                 row.onClose = { [weak self] in self?.onClose?(offset) }
+                row.onMenu = { [weak self] event in self?.onMenu?(offset, event) }
                 row.translatesAutoresizingMaskIntoConstraints = false
                 stack.addArrangedSubview(row)
                 row.show(model, selected: offset == index, background: surfaceBackground, animated: false)
                 row.pinHeight()
+                row.applyLayout(compact: axis == .horizontal)
                 rowViews.append(row)
             }
             if pulse, rowViews.indices.contains(index) {
@@ -618,9 +673,13 @@ final class TabSidebar: NSView {
         }
         for (offset, model) in rows.enumerated() {
             rowViews[offset].show(model, selected: offset == index, background: surfaceBackground, animated: animateSelection && !pulse)
+            rowViews[offset].applyLayout(compact: axis == .horizontal)
         }
         if pulse, rowViews.indices.contains(index) {
             rowViews[index].pulse()
+        }
+        if axis == .horizontal, rowViews.indices.contains(index) {
+            rowViews[index].scrollToVisible(rowViews[index].bounds)
         }
     }
 
@@ -635,6 +694,39 @@ final class TabSidebar: NSView {
         for row in rowViews {
             row.use(background: surfaceBackground)
         }
+    }
+
+    private func applyAxisChrome() {
+        NSLayoutConstraint.deactivate(chromeConstraints)
+        stackFit?.isActive = false
+        let horizontal = axis == .horizontal
+        if horizontal {
+            chromeConstraints = [
+                scroll.topAnchor.constraint(equalTo: topAnchor),
+                scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
+                scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
+                scroll.trailingAnchor.constraint(equalTo: addButton.leadingAnchor, constant: -4),
+                addButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+                addButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+                addButton.widthAnchor.constraint(equalToConstant: 28),
+                addButton.heightAnchor.constraint(equalToConstant: 28),
+            ]
+            stackFit = stack.heightAnchor.constraint(equalTo: scroll.contentView.heightAnchor)
+        } else {
+            chromeConstraints = [
+                scroll.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 4),
+                scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
+                scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
+                scroll.bottomAnchor.constraint(equalTo: addButton.topAnchor, constant: -4),
+                addButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+                addButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+                addButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
+                addButton.heightAnchor.constraint(equalToConstant: 36),
+            ]
+            stackFit = stack.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor)
+        }
+        NSLayoutConstraint.activate(chromeConstraints)
+        stackFit?.isActive = true
     }
 }
 
@@ -708,6 +800,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
     private let separator = NSView()
     private var sidebarWidth: NSLayoutConstraint!
     private var separatorWidth: NSLayoutConstraint!
+    private var sidebarHeight: NSLayoutConstraint!
+    private var separatorThickness: NSLayoutConstraint!
+    private var verticalChrome: [NSLayoutConstraint] = []
+    private var horizontalChrome: [NSLayoutConstraint] = []
     private var tabs: [TerminalTab] = []
     private var selected = 0
     private var nextOrdinal = 1
@@ -833,24 +929,43 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
 
         sidebarWidth = sidebar.widthAnchor.constraint(equalToConstant: 200)
         separatorWidth = separator.widthAnchor.constraint(equalToConstant: 1)
-        NSLayoutConstraint.activate([
+        sidebarHeight = sidebar.heightAnchor.constraint(equalToConstant: 40)
+        separatorThickness = separator.heightAnchor.constraint(equalToConstant: 1)
+        let safe = content.safeAreaLayoutGuide
+        verticalChrome = [
             sidebar.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            sidebar.topAnchor.constraint(equalTo: content.topAnchor),
+            sidebar.topAnchor.constraint(equalTo: safe.topAnchor),
             sidebar.bottomAnchor.constraint(equalTo: content.bottomAnchor),
             sidebarWidth,
             separator.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor),
-            separator.topAnchor.constraint(equalTo: content.topAnchor),
+            separator.topAnchor.constraint(equalTo: safe.topAnchor),
             separator.bottomAnchor.constraint(equalTo: content.bottomAnchor),
             separatorWidth,
             terminalHost.leadingAnchor.constraint(equalTo: separator.trailingAnchor),
             terminalHost.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            terminalHost.topAnchor.constraint(equalTo: content.safeAreaLayoutGuide.topAnchor),
+            terminalHost.topAnchor.constraint(equalTo: safe.topAnchor),
             terminalHost.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-        ])
+        ]
+        horizontalChrome = [
+            sidebar.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            sidebar.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            sidebar.topAnchor.constraint(equalTo: safe.topAnchor),
+            sidebarHeight,
+            separator.topAnchor.constraint(equalTo: sidebar.bottomAnchor),
+            separator.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            separator.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            separatorThickness,
+            terminalHost.topAnchor.constraint(equalTo: separator.bottomAnchor),
+            terminalHost.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            terminalHost.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            terminalHost.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+        ]
+        NSLayoutConstraint.activate(verticalChrome)
 
         sidebar.onSelect = { [weak self] index in self?.select(index) }
         sidebar.onClose = { [weak self] index in self?.closeTab(at: index) }
         sidebar.onNew = { [weak self] in self?.newTab() }
+        sidebar.onMenu = { [weak self] index, event in self?.showTabMenu(at: index, event: event) }
     }
 
     /// Sidebar and title bar use the terminal background, so the window is one surface.
@@ -861,18 +976,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         window?.appearance = appearance
         separator.layer?.backgroundColor = BoomeChrome.hairline(on: background).cgColor
         sidebar.use(background: background)
-        if placement == .horizontal {
-            window?.titleVisibility = .visible
-            window?.titlebarAppearsTransparent = false
-            window?.tabbingMode = .automatic
-            for tab in tabs {
-                tab.pane?.applyChrome(background: background)
-            }
-        } else {
-            window?.titleVisibility = .hidden
-            window?.titlebarAppearsTransparent = true
-            window?.tabbingMode = .disallowed
-        }
+        window?.titleVisibility = .hidden
+        window?.titlebarAppearsTransparent = true
+        window?.tabbingMode = .disallowed
     }
 
     private func openTab(replacingLast: Bool) {
@@ -898,13 +1004,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         nextOrdinal += 1
         tab.workingDirectory = directory
         tabs.append(tab)
-        if placement == .horizontal, tabs.count > 1 {
-            let pane = makePane()
-            tab.pane = pane
-            place(tab.view, in: pane.window?.contentView, respectingSafeArea: true)
-            pane.window?.title = tab.label
-            regroupHorizontal()
-        }
         select(tabs.count - 1)
     }
 
@@ -912,18 +1011,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         guard tabs.indices.contains(index) else { return }
         let changed = index != selected
         selected = index
-        if placement == .horizontal, !fromWindow {
-            let target = hostWindow(for: tabs[index])
-            applyingPlacement = true
-            // selectedWindow is the native tab switch. orderFront detaches a tab from the group.
-            if let group = target?.tabGroup ?? window?.tabGroup {
-                group.selectedWindow = target
-            }
-            applyingPlacement = false
-        }
         updateSurfaceVisibility()
         reloadSidebar(pulse: pulse && changed)
         focusSelected()
+        _ = fromWindow
     }
 
     private func focusSelected() {
@@ -1036,12 +1127,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        if placement == .horizontal, tabs.count > 1,
-           let index = tabs.firstIndex(where: { hostWindow(for: $0) === sender }) {
-            closeTab(at: index)
-            return false
-        }
-        return true
+        true
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
@@ -1054,13 +1140,77 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
 
     private func setPlacement(_ next: TabPlacement) {
         guard next != placement else { return }
+        foldPanesIntoMainWindow()
         placement = next
-        if next == .horizontal {
-            enterHorizontal()
-        } else {
-            enterVertical()
-        }
+        sidebar.setAxis(next == .horizontal ? .horizontal : .vertical)
+        NSLayoutConstraint.deactivate(verticalChrome + horizontalChrome)
+        NSLayoutConstraint.activate(next == .horizontal ? horizontalChrome : verticalChrome)
+        applySidebarWidth(animated: true)
+        applyTerminalChrome()
         reloadSidebar()
+        focusSelected()
+    }
+
+    private func showTabMenu(at index: Int, event: NSEvent) {
+        guard tabs.indices.contains(index) else { return }
+        let menu = NSMenu()
+        let newItem = NSMenuItem(title: "New Tab", action: #selector(newTabFromMenu(_:)), keyEquivalent: "t")
+        newItem.keyEquivalentModifierMask = .command
+        newItem.target = self
+        menu.addItem(newItem)
+        menu.addItem(.separator())
+        let closeItem = NSMenuItem(title: "Close Tab", action: #selector(closeFromMenu(_:)), keyEquivalent: "w")
+        closeItem.keyEquivalentModifierMask = .command
+        closeItem.target = self
+        closeItem.representedObject = index
+        menu.addItem(closeItem)
+        let others = NSMenuItem(title: "Close Other Tabs", action: #selector(closeOthersFromMenu(_:)), keyEquivalent: "")
+        others.target = self
+        others.representedObject = index
+        others.isEnabled = tabs.count > 1
+        menu.addItem(others)
+        let right = NSMenuItem(title: "Close Tabs to the Right", action: #selector(closeRightFromMenu(_:)), keyEquivalent: "")
+        right.target = self
+        right.representedObject = index
+        right.isEnabled = index < tabs.count - 1
+        menu.addItem(right)
+        NSMenu.popUpContextMenu(menu, with: event, for: sidebar)
+    }
+
+    @objc private func newTabFromMenu(_ sender: Any?) {
+        newTab()
+    }
+
+    @objc private func closeFromMenu(_ sender: NSMenuItem) {
+        guard let index = sender.representedObject as? Int else { return }
+        closeTab(at: index)
+    }
+
+    @objc private func closeOthersFromMenu(_ sender: NSMenuItem) {
+        guard let index = sender.representedObject as? Int else { return }
+        for victim in tabs.indices.reversed() where victim != index {
+            closeTab(at: victim)
+        }
+    }
+
+    @objc private func closeRightFromMenu(_ sender: NSMenuItem) {
+        guard let index = sender.representedObject as? Int else { return }
+        for victim in tabs.indices.reversed() where victim > index {
+            closeTab(at: victim)
+        }
+    }
+
+    private func foldPanesIntoMainWindow() {
+        guard tabs.contains(where: { $0.pane != nil }) else { return }
+        applyingPlacement = true
+        defer { applyingPlacement = false }
+        for tab in tabs {
+            place(tab.view, in: terminalHost, respectingSafeArea: false)
+            tab.pane?.closePane()
+            tab.pane = nil
+        }
+        window?.tabbingMode = .disallowed
+        updateSurfaceVisibility()
     }
 
     private func enterHorizontal() {
@@ -1101,19 +1251,30 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
     }
 
     private func applySidebarWidth(animated: Bool) {
-        let open = placement == .vertical && !sidebarCollapsed
-        let sidebarTarget: CGFloat = open ? 200 : 0
-        let separatorTarget: CGFloat = open ? 1 : 0
+        let horizontal = placement == .horizontal
+        let sidebarOpen = !horizontal && !sidebarCollapsed
         let changes = {
-            self.sidebarWidth.constant = sidebarTarget
-            self.separatorWidth.constant = separatorTarget
+            if horizontal {
+                self.sidebarHeight.constant = 40
+                self.separatorThickness.constant = 1
+            } else {
+                self.sidebarWidth.constant = sidebarOpen ? 200 : 0
+                self.separatorWidth.constant = sidebarOpen ? 1 : 0
+            }
         }
         if animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.18
+                context.duration = 0.22
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                 context.allowsImplicitAnimation = true
-                self.sidebarWidth.animator().constant = sidebarTarget
-                self.separatorWidth.animator().constant = separatorTarget
+                changes()
+                if horizontal {
+                    self.sidebarHeight.animator().constant = 40
+                    self.separatorThickness.animator().constant = 1
+                } else {
+                    self.sidebarWidth.animator().constant = sidebarOpen ? 200 : 0
+                    self.separatorWidth.animator().constant = sidebarOpen ? 1 : 0
+                }
             }
         } else {
             changes()
@@ -1158,14 +1319,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
 
     private func updateSurfaceVisibility() {
         for (offset, tab) in tabs.enumerated() {
-            let on = offset == selected
-            if placement == .horizontal {
-                tab.view.isHidden = false
-                host.setSurfaceVisible(tab.view.surface, visible: on)
-                tab.view.focusSurface(on)
-            } else {
-                tab.view.showSurface(on)
-            }
+            tab.view.showSurface(offset == selected)
         }
     }
 
