@@ -85,7 +85,9 @@ Swift + AppKit。所有 `ghostty_*` 调用都在 `src/GhosttyHost.swift`。升�
 
 因此在 shell integration 还没报过目录的时候（新开的第一个标签、集成被配置关掉、或者 `tab-inherit-working-directory = false`），新标签从家目录起。
 
-明确不做：分屏、Quick Terminal、AppleScript、滚动搜索、通知、内置浏览器、agent 状态环、SSH 包装、Linux、Windows、iOS、签名公证、上架、自定义品牌图标。
+应用图标是一枚橙色鬼魂，外面一圈云朵，底是透明的，源图在 `resources/AppIcon.png`。构建时打成 `AppIcon.icns`。侧栏用同一米色，选中行用鬼魂身上的橙色 `(241, 150, 67)`。这个橙色上放白字对比不够，所以选中行的字是深棕色。图标不再自带一块底，避免和侧栏叠出第二块板。
+
+明确不做：分屏、Quick Terminal、AppleScript、滚动搜索、通知、内置浏览器、agent 状态环、SSH 包装、Linux、Windows、iOS、签名公证、上架。
 
 ## 验证
 
@@ -102,3 +104,5 @@ Swift + AppKit。所有 `ghostty_*` 调用都在 `src/GhosttyHost.swift`。升�
 - 新标签里 `printf '%s\n' "$TERM"` 印出 `xterm-ghostty`。bundle 里有 `Contents/Resources/terminfo/78/xterm-ghostty` 和 `Contents/Resources/ghostty/shell-integration/zsh`。
 
 这次没有单独按 Cmd+Shift+] 和 Ctrl+Shift+Tab。下一个标签走的是 Ctrl+Tab，上一个走的是 Cmd+Shift+[。鼠标选区、滚动和剪贴板这次没有操作。`confirm-close-surface` 在光标不在提示符上时会弹确认，这条路径没有跑。
+
+同一天稍后给图标和侧栏上了色，并重新编过、打开过。侧栏顶部和标签行上的鬼魂没有米色方板，云朵直接落在米色侧栏上。选中行是橙色通栏，字是深棕色。底部是 “+ New Tab”。终端格子里仍能看见登录行。Dock 图标用的是同一张透明底图打出来的 `AppIcon.icns`，这次没有单独截 Dock。

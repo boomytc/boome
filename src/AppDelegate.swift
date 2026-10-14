@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         GhosttyHost.shared.start()
+        BoomeChrome.installApplicationIcon()
         installMenu()
         let controller = MainWindowController()
         windowController = controller

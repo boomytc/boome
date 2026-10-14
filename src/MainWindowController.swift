@@ -26,39 +26,82 @@ final class TerminalTab {
     }
 }
 
+/// Keeps a short tab list under the header. The default clip view pins a
+/// short document to the bottom of the sidebar.
+private final class TopClipView: NSClipView {
+    override var isFlipped: Bool { true }
+}
+
+private final class RowCell: NSButtonCell {
+    override func imageRect(forBounds rect: NSRect) -> NSRect {
+        super.imageRect(forBounds: padded(rect))
+    }
+
+    override func titleRect(forBounds rect: NSRect) -> NSRect {
+        super.titleRect(forBounds: padded(rect))
+    }
+
+    private func padded(_ rect: NSRect) -> NSRect {
+        NSRect(x: rect.minX + 8, y: rect.minY + 2, width: max(0, rect.width - 16), height: max(0, rect.height - 4))
+    }
+}
+
 final class TabSidebar: NSView {
     var onSelect: ((Int) -> Void)?
     var onNew: (() -> Void)?
 
+    private let headerIcon = NSImageView()
+    private let headerTitle = NSTextField(labelWithString: "Boome")
     private let scroll = NSScrollView()
     private let stack = NSStackView()
     private let addButton = NSButton()
     private var rows: [NSButton] = []
+    private var labels: [String] = []
     private var selected = 0
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
 
+        headerIcon.imageScaling = .scaleNone
+        headerIcon.image = BoomeChrome.icon(pointSize: 28)
+        headerIcon.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(headerIcon)
+
+        headerTitle.font = .systemFont(ofSize: 15, weight: .semibold)
+        headerTitle.lineBreakMode = .byTruncatingTail
+        headerTitle.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(headerTitle)
+
         stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 2
-        stack.edgeInsets = NSEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+        stack.alignment = .width
+        stack.spacing = 4
+        stack.edgeInsets = NSEdgeInsets(top: 4, left: 10, bottom: 8, right: 10)
+        stack.setHuggingPriority(.required, for: .vertical)
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = false
         scroll.autohidesScrollers = true
+        let clip = TopClipView()
+        clip.drawsBackground = false
+        scroll.contentView = clip
+        scroll.drawsBackground = false
+        scroll.backgroundColor = .clear
         scroll.documentView = stack
         scroll.translatesAutoresizingMaskIntoConstraints = false
         addSubview(scroll)
 
-        addButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "New Tab")
+        addButton.image = plusImage()
         addButton.imagePosition = .imageLeading
-        addButton.title = "New Tab"
-        addButton.bezelStyle = .rounded
-        addButton.controlSize = .large
+        addButton.imageHugsTitle = true
+        addButton.imageScaling = .scaleNone
+        addButton.alignment = .center
+        addButton.isBordered = false
+        addButton.wantsLayer = true
+        addButton.layer?.cornerRadius = 8
+        addButton.layer?.masksToBounds = true
         addButton.target = self
         addButton.action = #selector(addPressed)
         addButton.translatesAutoresizingMaskIntoConstraints = false
@@ -66,16 +109,24 @@ final class TabSidebar: NSView {
         addSubview(addButton)
 
         NSLayoutConstraint.activate([
-            scroll.topAnchor.constraint(equalTo: topAnchor),
+            headerIcon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            headerIcon.topAnchor.constraint(equalTo: topAnchor, constant: 14),
+            headerIcon.widthAnchor.constraint(equalToConstant: 28),
+            headerIcon.heightAnchor.constraint(equalToConstant: 28),
+            headerTitle.leadingAnchor.constraint(equalTo: headerIcon.trailingAnchor, constant: 8),
+            headerTitle.centerYAnchor.constraint(equalTo: headerIcon.centerYAnchor),
+            headerTitle.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -12),
+            scroll.topAnchor.constraint(equalTo: headerIcon.bottomAnchor, constant: 12),
             scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
             scroll.bottomAnchor.constraint(equalTo: addButton.topAnchor, constant: -8),
-            stack.widthAnchor.constraint(equalTo: scroll.widthAnchor),
-            addButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            addButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            addButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
-            addButton.heightAnchor.constraint(equalToConstant: 32),
+            stack.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
+            addButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            addButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            addButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
+            addButton.heightAnchor.constraint(equalToConstant: 34),
         ])
+        refreshAppearance()
     }
 
     @available(*, unavailable)
@@ -83,34 +134,75 @@ final class TabSidebar: NSView {
         fatalError("init(coder:) is not used")
     }
 
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshAppearance()
+    }
+
     func reload(labels: [String], selected index: Int) {
+        self.labels = labels
         selected = index
         for row in rows { row.removeFromSuperview() }
         rows.removeAll()
         for (offset, label) in labels.enumerated() {
             let button = NSButton()
-            button.title = label
+            button.cell = RowCell(textCell: "")
+            button.image = BoomeChrome.icon(pointSize: 18)
+            button.imagePosition = .imageLeading
+            button.imageScaling = .scaleNone
+            button.imageHugsTitle = true
             button.alignment = .left
-            button.bezelStyle = .inline
             button.isBordered = false
             button.lineBreakMode = .byTruncatingTail
-            button.font = .systemFont(ofSize: 13, weight: offset == index ? .semibold : .regular)
-            button.contentTintColor = offset == index ? .white : .labelColor
             button.wantsLayer = true
-            button.layer?.cornerRadius = 6
-            button.layer?.backgroundColor = (offset == index ? NSColor.controlAccentColor : NSColor.clear).cgColor
+            button.layer?.cornerRadius = 8
+            button.layer?.masksToBounds = true
             button.target = self
             button.action = #selector(rowPressed(_:))
             button.tag = offset
             button.refusesFirstResponder = true
             button.translatesAutoresizingMaskIntoConstraints = false
             button.setAccessibilityLabel(label)
-            button.setAccessibilitySelected(offset == index)
+            style(button, label: label, selected: offset == index)
             stack.addArrangedSubview(button)
-            button.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -16).isActive = true
-            button.heightAnchor.constraint(equalToConstant: 32).isActive = true
+            button.heightAnchor.constraint(equalToConstant: 34).isActive = true
             rows.append(button)
         }
+    }
+
+    func refreshAppearance() {
+        let appearance = effectiveAppearance
+        layer?.backgroundColor = BoomeChrome.sidebarFill(for: appearance).cgColor
+        headerTitle.textColor = BoomeChrome.text(selected: false, appearance: appearance)
+        addButton.layer?.backgroundColor = BoomeChrome.quietFill(for: appearance).cgColor
+        addButton.attributedTitle = styled("New Tab", selected: false, centered: true)
+        for (offset, row) in rows.enumerated() where labels.indices.contains(offset) {
+            style(row, label: labels[offset], selected: offset == selected)
+        }
+    }
+
+    private func style(_ button: NSButton, label: String, selected: Bool) {
+        button.attributedTitle = styled(label, selected: selected, centered: false)
+        button.layer?.backgroundColor = (selected ? BoomeChrome.accent : NSColor.clear).cgColor
+        button.setAccessibilitySelected(selected)
+    }
+
+    private func styled(_ text: String, selected: Bool, centered: Bool) -> NSAttributedString {
+        let style = NSMutableParagraphStyle()
+        style.lineBreakMode = .byTruncatingTail
+        style.alignment = centered ? .center : .left
+        return NSAttributedString(string: text, attributes: [
+            .font: NSFont.systemFont(ofSize: 13, weight: selected ? .semibold : .medium),
+            .foregroundColor: BoomeChrome.text(selected: selected, appearance: effectiveAppearance),
+            .paragraphStyle: style,
+        ])
+    }
+
+    private func plusImage() -> NSImage? {
+        let symbol = NSImage(systemSymbolName: "plus", accessibilityDescription: "New Tab")
+        let palette = NSImage.SymbolConfiguration(paletteColors: [BoomeChrome.accent])
+        let size = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+        return symbol?.withSymbolConfiguration(size.applying(palette))
     }
 
     @objc private func rowPressed(_ sender: NSButton) {
@@ -147,9 +239,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         host.delegate = self
         buildChrome()
         openTab(replacingLast: false)
-        appearanceObserver = NSApp.observe(\.effectiveAppearance, options: [.new]) { _, _ in
+        appearanceObserver = NSApp.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, _ in
             DispatchQueue.main.async {
                 GhosttyHost.shared.applySystemColorScheme()
+                self?.sidebar.refreshAppearance()
             }
         }
     }

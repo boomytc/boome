@@ -112,12 +112,38 @@ if [[ ! -d "$shell_dir" ]]; then
   exit 1
 fi
 
+install_app_icon() {
+  local root="$1"
+  local app="$2"
+  local png="$root/resources/AppIcon.png"
+  local iconset="$root/build/AppIcon.iconset"
+  if [[ ! -f "$png" ]]; then
+    echo "Missing $png" >&2
+    exit 1
+  fi
+  rm -rf "$iconset"
+  mkdir -p "$iconset"
+  sips -z 16 16 "$png" --out "$iconset/icon_16x16.png" >/dev/null
+  sips -z 32 32 "$png" --out "$iconset/icon_16x16@2x.png" >/dev/null
+  sips -z 32 32 "$png" --out "$iconset/icon_32x32.png" >/dev/null
+  sips -z 64 64 "$png" --out "$iconset/icon_32x32@2x.png" >/dev/null
+  sips -z 128 128 "$png" --out "$iconset/icon_128x128.png" >/dev/null
+  sips -z 256 256 "$png" --out "$iconset/icon_128x128@2x.png" >/dev/null
+  sips -z 256 256 "$png" --out "$iconset/icon_256x256.png" >/dev/null
+  sips -z 512 512 "$png" --out "$iconset/icon_256x256@2x.png" >/dev/null
+  sips -z 512 512 "$png" --out "$iconset/icon_512x512.png" >/dev/null
+  sips -z 1024 1024 "$png" --out "$iconset/icon_512x512@2x.png" >/dev/null
+  iconutil -c icns "$iconset" -o "$app/Contents/Resources/AppIcon.icns"
+  cp "$png" "$app/Contents/Resources/AppIcon.png"
+}
+
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$root/src/Info.plist" "$app/Contents/Info.plist"
 # Same layout as Ghostty's macOS bundle: Resources/ghostty next to
 # Resources/terminfo, plus the other share/ trees (completions, man, themes).
 cp -R "$share"/. "$app/Contents/Resources/"
+install_app_icon "$root" "$app"
 
 # swiftc uses Apple's linker, which understands the real SDK. The xcrun
 # wrapper above would hand it the shim; call the real xcrun for the app link.
@@ -152,6 +178,7 @@ swiftc \
   -Xlinker -force_load -Xlinker "$lib" \
   -o "$app/Contents/MacOS/Boome" \
   "$root/src/AppDelegate.swift" \
+  "$root/src/BoomeChrome.swift" \
   "$root/src/GhosttyHost.swift" \
   "$root/src/TerminalSurfaceView.swift" \
   "$root/src/MainWindowController.swift"
