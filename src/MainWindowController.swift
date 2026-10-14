@@ -41,23 +41,53 @@ struct TabPresentation: Equatable {
     var secondary: String?
     var accessibility: String
 
+    static func rowHeight(hasSecondary: Bool) -> CGFloat {
+        hasSecondary ? 46 : 34
+    }
+
     static func make(label: String, customTitle: Bool) -> TabPresentation {
         let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !customTitle, let split = splitShellTitle(trimmed) ?? splitPath(trimmed) {
+        if customTitle {
+            return TabPresentation(primary: label, secondary: nil, accessibility: label)
+        }
+        if let split = splitShellTitle(trimmed) ?? splitPath(trimmed) {
             return split
         }
         return TabPresentation(primary: label, secondary: nil, accessibility: label)
     }
 
+    /// Rows that still draw the same two lines get a quiet second line:
+    /// the parent path segment that differs, or an ordinal when nothing else does.
+    static func disambiguate(_ rows: [TabPresentation]) -> [TabPresentation] {
+        var groups: [String: [Int]] = [:]
+        for (index, row) in rows.enumerated() {
+            let key = row.primary + "\u{1e}" + (row.secondary ?? "")
+            groups[key, default: []].append(index)
+        }
+        var result = rows
+        for indices in groups.values where indices.count > 1 {
+            let paths = indices.map { path(from: rows[$0].accessibility) }
+            let marks = distinguishingParents(paths) ?? indices.indices.map { String($0 + 1) }
+            for (offset, index) in indices.enumerated() {
+                let mark = marks[offset]
+                let existing = rows[index].secondary
+                result[index].secondary = merge(existing: existing, mark: mark)
+                if !rows[index].accessibility.contains(mark) {
+                    result[index].accessibility = rows[index].accessibility + " · " + mark
+                }
+            }
+        }
+        return result
+    }
+
     /// A title that is only a path still hides its last component when the
-    /// line is tail-truncated. The parent path stays on the second line.
+    /// line is tail-truncated. The parent stays on the second line when it
+    /// is more than `/` or `~`.
     private static func splitPath(_ title: String) -> TabPresentation? {
         guard title.hasPrefix("/") || title.hasPrefix("~") else { return nil }
         let name = directoryName(title)
         guard !name.isEmpty, name != title else { return nil }
-        let parent = (title as NSString).deletingLastPathComponent
-        let secondary = (parent.isEmpty || parent == "/" || parent == "~") ? nil : parent
-        return TabPresentation(primary: name, secondary: secondary, accessibility: title)
+        return TabPresentation(primary: name, secondary: meaningfulParent(title), accessibility: title)
     }
 
     private static func splitShellTitle(_ title: String) -> TabPresentation? {
@@ -70,7 +100,89 @@ struct TabPresentation: Equatable {
         let path = trimmed[trimmed.index(after: colon)...].trimmingCharacters(in: .whitespaces)
         let name = directoryName(path)
         guard !userHost.isEmpty, !name.isEmpty else { return nil }
-        return TabPresentation(primary: name, secondary: userHost, accessibility: trimmed)
+        let secondary = isLocal(userHost) ? meaningfulParent(path) : userHost
+        return TabPresentation(primary: name, secondary: secondary, accessibility: trimmed)
+    }
+
+    /// The local host is on every tab, so it does not earn a second line.
+    private static func isLocal(_ userHost: String) -> Bool {
+        guard let at = userHost.lastIndex(of: "@") else { return false }
+        let host = String(userHost[userHost.index(after: at)...]).lowercased()
+        if localNames.contains(host) { return true }
+        if let dot = host.firstIndex(of: "."), localNames.contains(String(host[..<dot])) {
+            return true
+        }
+        return false
+    }
+
+    private static let localNames: Set<String> = {
+        var names: Set<String> = ["localhost"]
+        let full = ProcessInfo.processInfo.hostName.lowercased()
+        names.insert(full)
+        if let dot = full.firstIndex(of: ".") {
+            names.insert(String(full[..<dot]))
+        }
+        if let localized = Host.current().localizedName?.lowercased() {
+            names.insert(localized)
+            names.insert(localized.replacingOccurrences(of: " ", with: "-"))
+        }
+        return names
+    }()
+
+    private static func meaningfulParent(_ path: String) -> String? {
+        let parent = (path as NSString).deletingLastPathComponent
+        if parent.isEmpty || parent == "/" || parent == "~" || parent == "." || parent == path {
+            return nil
+        }
+        return parent
+    }
+
+    private static func path(from label: String) -> String? {
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let at = trimmed.firstIndex(of: "@") {
+            let after = trimmed.index(after: at)
+            if after < trimmed.endIndex, let colon = trimmed[after...].firstIndex(of: ":") {
+                let path = trimmed[trimmed.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+                if !path.isEmpty { return path }
+            }
+        }
+        if trimmed.hasPrefix("/") || trimmed.hasPrefix("~") { return trimmed }
+        return nil
+    }
+
+    private static func distinguishingParents(_ paths: [String?]) -> [String]? {
+        let concrete = paths.compactMap { $0 }
+        guard concrete.count == paths.count else { return nil }
+        let parents = concrete.map { parentComponents($0) }
+        guard let first = parents.first, !parents.allSatisfy({ $0 == first }) else { return nil }
+        let longest = parents.map(\.count).max() ?? 0
+        var take = 1
+        while take <= max(longest, 1) {
+            let marks = parents.map { suffix($0, take) }
+            if Set(marks).count == marks.count { return marks }
+            take += 1
+        }
+        return parents.map { suffix($0, longest) }
+    }
+
+    private static func parentComponents(_ path: String) -> [String] {
+        var text = path
+        while text.count > 1, text.hasSuffix("/") { text.removeLast() }
+        let pieces = text.split(separator: "/").map(String.init)
+        if pieces.count <= 1 { return [] }
+        return Array(pieces.dropLast())
+    }
+
+    private static func suffix(_ parts: [String], _ count: Int) -> String {
+        if parts.isEmpty { return "/" }
+        let start = max(0, parts.count - count)
+        return parts[start...].joined(separator: "/")
+    }
+
+    private static func merge(existing: String?, mark: String) -> String {
+        guard let existing, !existing.isEmpty else { return mark }
+        if existing == mark || existing.hasSuffix(" · " + mark) { return existing }
+        return existing + " · " + mark
     }
 
     private static func directoryName(_ path: String) -> String {
@@ -83,10 +195,10 @@ struct TabPresentation: Equatable {
     }
 }
 
-private func paintFill(_ layer: CALayer?, color: NSColor, animated: Bool) {
+private func paintFill(_ layer: CALayer?, color: NSColor, animated: Bool, duration requested: CFTimeInterval = 0.14) {
     guard let layer else { return }
     let next = color.cgColor
-    let duration: CFTimeInterval = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.14
+    let duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : requested
     if animated, duration > 0 {
         let animation = CABasicAnimation(keyPath: "backgroundColor")
         animation.fromValue = layer.presentation()?.backgroundColor ?? layer.backgroundColor
@@ -109,6 +221,8 @@ private final class TabRowView: NSView {
     private var selected = false
     private var hovered = false
     private var tracking: NSTrackingArea?
+    private var heightConstraint: NSLayoutConstraint?
+    private var pulseToken = 0
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { false }
@@ -141,7 +255,27 @@ private final class TabRowView: NSView {
         toolTip = model.accessibility
         setAccessibilityLabel(model.accessibility)
         setAccessibilitySelected(selected)
+        heightConstraint?.constant = TabPresentation.rowHeight(hasSecondary: model.secondary != nil)
         applyChrome(animated: animated && selectionChanged)
+    }
+
+    func pinHeight() {
+        let constraint = heightAnchor.constraint(equalToConstant: TabPresentation.rowHeight(hasSecondary: model.secondary != nil))
+        constraint.isActive = true
+        heightConstraint = constraint
+    }
+
+    /// Keyboard landing. A lighter orange, then back to the selection fill.
+    func pulse() {
+        guard selected, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        pulseToken += 1
+        let token = pulseToken
+        let flash = BoomeChrome.accent.blended(withFraction: 0.4, of: .white) ?? BoomeChrome.accent
+        paintFill(layer, color: flash, animated: false)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.09) { [weak self] in
+            guard let self, self.pulseToken == token, self.selected else { return }
+            paintFill(self.layer, color: BoomeChrome.accent, animated: true, duration: 0.28)
+        }
     }
 
     func use(background: NSColor) {
@@ -455,7 +589,7 @@ final class TabSidebar: NSView {
         refreshAppearance()
     }
 
-    func reload(rows: [TabPresentation], selected index: Int) {
+    func reload(rows: [TabPresentation], selected index: Int, pulse: Bool = false) {
         let animateSelection = !rowViews.isEmpty && index != selected
         selected = index
         if rowViews.count != rows.count {
@@ -467,14 +601,20 @@ final class TabSidebar: NSView {
                 row.onClose = { [weak self] in self?.onClose?(offset) }
                 row.translatesAutoresizingMaskIntoConstraints = false
                 stack.addArrangedSubview(row)
-                row.heightAnchor.constraint(equalToConstant: 46).isActive = true
                 row.show(model, selected: offset == index, background: surfaceBackground, animated: false)
+                row.pinHeight()
                 rowViews.append(row)
+            }
+            if pulse, rowViews.indices.contains(index) {
+                rowViews[index].pulse()
             }
             return
         }
         for (offset, model) in rows.enumerated() {
-            rowViews[offset].show(model, selected: offset == index, background: surfaceBackground, animated: animateSelection)
+            rowViews[offset].show(model, selected: offset == index, background: surfaceBackground, animated: animateSelection && !pulse)
+        }
+        if pulse, rowViews.indices.contains(index) {
+            rowViews[index].pulse()
         }
     }
 
@@ -569,7 +709,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
             guard tabs.indices.contains(index) else { return }
             next = index
         }
-        select(next)
+        select(next, pulse: true)
     }
 
     private func buildChrome() {
@@ -638,13 +778,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         select(tabs.count - 1)
     }
 
-    private func select(_ index: Int) {
+    private func select(_ index: Int, pulse: Bool = false) {
         guard tabs.indices.contains(index) else { return }
+        let changed = index != selected
         selected = index
         for (offset, tab) in tabs.enumerated() {
             tab.view.showSurface(offset == index)
         }
-        reloadSidebar()
+        reloadSidebar(pulse: pulse && changed)
         focusSelected()
     }
 
@@ -654,11 +795,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         window?.title = tabs[selected].label
     }
 
-    private func reloadSidebar() {
-        sidebar.reload(
-            rows: tabs.map { TabPresentation.make(label: $0.label, customTitle: $0.tabTitle != nil) },
-            selected: selected
+    private func reloadSidebar(pulse: Bool = false) {
+        let rows = TabPresentation.disambiguate(
+            tabs.map { TabPresentation.make(label: $0.label, customTitle: $0.tabTitle != nil) }
         )
+        sidebar.reload(rows: rows, selected: selected, pulse: pulse)
         if tabs.indices.contains(selected) {
             window?.title = tabs[selected].label
         }
