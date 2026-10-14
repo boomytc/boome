@@ -1,0 +1,9 @@
+#!/bin/zsh
+# Zig 0.15.2 asks xcrun for the macOS SDK, then fails to link arm64e-only
+# stubs from the Xcode 27 SDK. Point that lookup at the patched copy from
+# scripts/macos-sdk-shim.py. Every other xcrun request stays on the real one.
+if [[ "$*" == *--show-sdk-path* && "$*" == *macosx* ]]; then
+  echo "${BOOME_SDK_SHIM:-$HOME/.cache/boome/MacOSX-arm64-shim.sdk}"
+  exit 0
+fi
+exec /usr/bin/xcrun "$@"
