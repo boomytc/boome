@@ -26,7 +26,7 @@ final class TerminalTab {
     }
 }
 
-/// Keeps a short tab list under the header. The default clip view pins a
+/// Keeps a short tab list at the top. The default clip view pins a
 /// short document to the bottom of the sidebar.
 private final class TopClipView: NSClipView {
     override var isFlipped: Bool { true }
@@ -50,8 +50,6 @@ final class TabSidebar: NSView {
     var onSelect: ((Int) -> Void)?
     var onNew: (() -> Void)?
 
-    private let headerIcon = NSImageView()
-    private let headerTitle = NSTextField(labelWithString: "Boome")
     private let scroll = NSScrollView()
     private let stack = NSStackView()
     private let addButton = NSButton()
@@ -63,16 +61,6 @@ final class TabSidebar: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-
-        headerIcon.imageScaling = .scaleNone
-        headerIcon.image = BoomeChrome.icon(pointSize: 28)
-        headerIcon.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(headerIcon)
-
-        headerTitle.font = .systemFont(ofSize: 15, weight: .semibold)
-        headerTitle.lineBreakMode = .byTruncatingTail
-        headerTitle.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(headerTitle)
 
         stack.orientation = .vertical
         stack.alignment = .width
@@ -110,14 +98,7 @@ final class TabSidebar: NSView {
         addSubview(addButton)
 
         NSLayoutConstraint.activate([
-            headerIcon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-            headerIcon.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 8),
-            headerIcon.widthAnchor.constraint(equalToConstant: 28),
-            headerIcon.heightAnchor.constraint(equalToConstant: 28),
-            headerTitle.leadingAnchor.constraint(equalTo: headerIcon.trailingAnchor, constant: 8),
-            headerTitle.centerYAnchor.constraint(equalTo: headerIcon.centerYAnchor),
-            headerTitle.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -12),
-            scroll.topAnchor.constraint(equalTo: headerIcon.bottomAnchor, constant: 12),
+            scroll.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 6),
             scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
             scroll.bottomAnchor.constraint(equalTo: addButton.topAnchor, constant: -8),
@@ -178,7 +159,6 @@ final class TabSidebar: NSView {
 
     func refreshAppearance() {
         layer?.backgroundColor = surfaceBackground.cgColor
-        headerTitle.textColor = BoomeChrome.text(selected: false, on: surfaceBackground)
         addButton.layer?.backgroundColor = BoomeChrome.quietFill(on: surfaceBackground).cgColor
         addButton.attributedTitle = styled("New Tab", selected: false, centered: true)
         for (offset, row) in rows.enumerated() where labels.indices.contains(offset) {
