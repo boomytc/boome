@@ -147,6 +147,7 @@ final class GhosttyHost: NSObject {
 
     func makeSurface(view: NSView, workingDirectory: String?, contextTab: Bool) -> Surface? {
         guard let app else { return nil }
+        quietLoginBanner()
         var options = ghostty_surface_config_new()
         let userdata = Unmanaged.passUnretained(view).toOpaque()
         options.userdata = userdata
@@ -174,6 +175,16 @@ final class GhosttyHost: NSObject {
         ghostty_surface_set_focus(raw, true)
         ghostty_surface_set_occlusion(raw, true)
         return surface
+    }
+
+    /// `/usr/bin/login` prints `Last login: ... on ttysNNN` unless it is
+    /// passed `-q`. The library adds that flag only when `~/.hushlogin`
+    /// exists. An empty file is the switch it already checks.
+    private func quietLoginBanner() {
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".hushlogin")
+        if FileManager.default.fileExists(atPath: url.path) { return }
+        FileManager.default.createFile(atPath: url.path, contents: Data())
     }
 
     /// Directory the library would give a new tab opened from this surface.

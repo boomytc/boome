@@ -85,6 +85,8 @@ Swift + AppKit。所有 `ghostty_*` 调用都在 `src/GhosttyHost.swift`。升�
 
 因此在 shell integration 还没报过目录的时候（新开的第一个标签、集成被配置关掉、或者 `tab-inherit-working-directory = false`），新标签从家目录起。
 
+`/usr/bin/login` 会在登录 shell 开头印 `Last login: ... on ttysNNN`。库只在家目录有 `.hushlogin` 时才给 login 加 `-q`。Boome 在打开 surface 之前放一个空的 `~/.hushlogin`（已经有就不碰）。这是 macOS 的登录开关，同一账号下别的登录 shell 也不会再印这行。删掉这个文件后，下一次开标签时 Boome 会再放回去。
+
 应用图标是一枚橙色鬼魂，外面一圈云朵，底是透明的，源图在 `resources/AppIcon.png`。构建时打成 `AppIcon.icns`。侧栏和标题栏用库读到的终端 `background`，不再另铺一块米色。选中行用鬼魂身上的橙色 `(241, 150, 67)`。这个橙色上放白字对比不够，所以选中行的字是深棕色。侧栏行不再重复贴这枚图标：窄栏里每行一枚同样的鬼魂只会挤掉标题。橙色只用来标当前这一行。
 
 明确不做：分屏、Quick Terminal、AppleScript、滚动搜索、通知、内置浏览器、agent 状态环、SSH 包装、Linux、Windows、iOS、签名公证、上架。
@@ -110,3 +112,5 @@ Swift + AppKit。所有 `ghostty_*` 调用都在 `src/GhosttyHost.swift`。升�
 同一天再往后收了一轮侧栏，重新编过并 `open build/Boome.app`。看到的是：选中行上面是 `~`，下面是 `boom@M4-Pro-of-Boom`，字是深色，行尾有关闭标记；底部 “+ New Tab” 没有底色。点另一行，橙色会跟着过去。点选中行的行尾，这一行关掉，对应的 login 进程没了，剩下的行还在。菜单 Cmd+T 只新开一个 login。在当前格子里 `cd /tmp` 之后，提示符变成 `/tmp`，侧栏这一行变成 `tmp`，窗口标题仍是完整的 `/tmp`，关闭标记还在。悬停时的浅底、右键关闭、以及关掉没选中的那一行，这次没有单独看。浅色主题没有跑。
 
 同一天再改了重复行。重新编过并打开。只有一个家目录标签时，侧栏只有 `~`，没有主机名。菜单 Cmd+T 再开一个家目录标签后，两行分别是 `~` / `1` 和 `~` / `2`。把选中的那个 `cd /tmp` 之后，它变成单独的 `tmp`，留下的家目录标签也回到只有 `~`。Ctrl+Tab 切回 `~`，窗口标题是完整的 `boom@M4-Pro-of-Boom:~`。键盘落点那一下短闪没有截到。远程主机和两条不同父路径的同名目录，这次没有造出来看。
+
+同一天拿掉登录横幅。重新编过并打开。新会话的 login 参数里有 `-q`，格子第一行是提示符 `boom@M4-Pro-of-Boom ~ %`，没有 `Last login`。家目录里有空的 `.hushlogin`。
