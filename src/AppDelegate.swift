@@ -44,6 +44,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         GhosttyHost.shared.shutdown()
     }
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let windowController else { return .terminateNow }
+        if windowController.approveTermination() { return .terminateNow }
+        windowController.requestQuit()
+        if windowController.approveTermination() { return .terminateNow }
+        return .terminateCancel
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
     }

@@ -366,11 +366,13 @@ final class TerminalSurfaceView: NSView, NSTextInputClient {
 
     static func isAppShortcut(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let key = event.charactersIgnoringModifiers?.lowercased()
-        if flags == .command, key == "t" || key == "w" || key == "q" { return true }
-        if flags == [.command, .option], key == "t" || key == "s" { return true }
-        if flags == [.command, .shift], key == "[" || key == "]" { return true }
-        if flags.contains(.control), event.keyCode == 48 { return true }
-        return false
+        return AppShortcut.owns(AppShortcut.Chord(
+            command: flags.contains(.command),
+            option: flags.contains(.option),
+            shift: flags.contains(.shift),
+            control: flags.contains(.control),
+            key: event.charactersIgnoringModifiers?.lowercased() ?? "",
+            keyCode: event.keyCode
+        ))
     }
 }

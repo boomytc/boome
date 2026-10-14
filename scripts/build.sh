@@ -179,6 +179,7 @@ swiftc \
   -o "$app/Contents/MacOS/Boome" \
   "$root/src/AppDelegate.swift" \
   "$root/src/BoomeChrome.swift" \
+  "$root/src/TabLogic.swift" \
   "$root/src/GhosttyHost.swift" \
   "$root/src/TerminalSurfaceView.swift" \
   "$root/src/MainWindowController.swift"

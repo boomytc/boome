@@ -29,6 +29,29 @@ enum BoomeChrome {
         isDark(background) ? NSColor(white: 1, alpha: 0.14) : NSColor(white: 0, alpha: 0.08)
     }
 
+    /// One fill scale for every row, in either axis. Rest is clear.
+    static func rowFill(_ role: RowRole, on background: NSColor) -> NSColor {
+        switch role {
+        case .rest:
+            return .clear
+        case .hover:
+            return quietFill(on: background)
+        case .selected:
+            return selectionFill(on: background)
+        }
+    }
+
+    /// The New Tab control has no resting fill. Hover uses the row hover.
+    static func newTabFill(hovered: Bool, on background: NSColor) -> NSColor {
+        hovered ? quietFill(on: background) : .clear
+    }
+
+    enum RowRole {
+        case rest
+        case hover
+        case selected
+    }
+
     static func hairline(on background: NSColor) -> NSColor {
         isDark(background) ? NSColor(white: 1, alpha: 0.12) : NSColor(white: 0, alpha: 0.1)
     }

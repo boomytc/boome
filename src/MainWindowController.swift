@@ -1,17 +1,15 @@
 import AppKit
 
 final class TerminalTab {
-    let ordinal: Int
+    let id: TabID
+    var ordinal: Int { id.raw }
     let view: TerminalSurfaceView
     var terminalTitle = ""
     var tabTitle: String?
     var workingDirectory: String?
-    /// Extra window used while this tab is a native horizontal tab.
-    /// Nil means the tab is hosted in the main window.
-    var pane: TabPaneController?
 
-    init(ordinal: Int, view: TerminalSurfaceView) {
-        self.ordinal = ordinal
+    init(id: TabID, view: TerminalSurfaceView) {
+        self.id = id
         self.view = view
     }
 
@@ -34,168 +32,6 @@ final class TerminalTab {
 private final class TopClipView: NSClipView {
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { true }
-}
-
-/// Sidebar drawing of one tab. The window title stays the full string.
-/// A `user@host:path` title is split so the path is the line you scan;
-/// tail truncation in a 200-point column was hiding it.
-struct TabPresentation: Equatable {
-    var primary: String
-    var secondary: String?
-    var accessibility: String
-
-    static func rowHeight(hasSecondary: Bool) -> CGFloat {
-        hasSecondary ? 46 : 34
-    }
-
-    static func make(label: String, customTitle: Bool) -> TabPresentation {
-        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
-        if customTitle {
-            return TabPresentation(primary: label, secondary: nil, accessibility: label)
-        }
-        if let split = splitShellTitle(trimmed) ?? splitPath(trimmed) {
-            return split
-        }
-        return TabPresentation(primary: label, secondary: nil, accessibility: label)
-    }
-
-    /// Rows that still draw the same two lines get a quiet second line:
-    /// the parent path segment that differs, or an ordinal when nothing else does.
-    static func disambiguate(_ rows: [TabPresentation]) -> [TabPresentation] {
-        var groups: [String: [Int]] = [:]
-        for (index, row) in rows.enumerated() {
-            let key = row.primary + "\u{1e}" + (row.secondary ?? "")
-            groups[key, default: []].append(index)
-        }
-        var result = rows
-        for indices in groups.values where indices.count > 1 {
-            let paths = indices.map { path(from: rows[$0].accessibility) }
-            let marks = distinguishingParents(paths) ?? indices.indices.map { String($0 + 1) }
-            for (offset, index) in indices.enumerated() {
-                let mark = marks[offset]
-                let existing = rows[index].secondary
-                result[index].secondary = merge(existing: existing, mark: mark)
-                if !rows[index].accessibility.contains(mark) {
-                    result[index].accessibility = rows[index].accessibility + " · " + mark
-                }
-            }
-        }
-        return result
-    }
-
-    /// A title that is only a path still hides its last component when the
-    /// line is tail-truncated. The parent stays on the second line when it
-    /// is more than `/` or `~`.
-    private static func splitPath(_ title: String) -> TabPresentation? {
-        guard title.hasPrefix("/") || title.hasPrefix("~") else { return nil }
-        let name = directoryName(title)
-        guard !name.isEmpty, name != title else { return nil }
-        return TabPresentation(primary: name, secondary: meaningfulParent(title), accessibility: title)
-    }
-
-    private static func splitShellTitle(_ title: String) -> TabPresentation? {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let at = trimmed.firstIndex(of: "@") else { return nil }
-        let afterAt = trimmed.index(after: at)
-        guard afterAt < trimmed.endIndex,
-              let colon = trimmed[afterAt...].firstIndex(of: ":") else { return nil }
-        let userHost = String(trimmed[..<colon])
-        let path = trimmed[trimmed.index(after: colon)...].trimmingCharacters(in: .whitespaces)
-        let name = directoryName(path)
-        guard !userHost.isEmpty, !name.isEmpty else { return nil }
-        let secondary = isLocal(userHost) ? meaningfulParent(path) : userHost
-        return TabPresentation(primary: name, secondary: secondary, accessibility: trimmed)
-    }
-
-    /// The local host is on every tab, so it does not earn a second line.
-    private static func isLocal(_ userHost: String) -> Bool {
-        guard let at = userHost.lastIndex(of: "@") else { return false }
-        let host = String(userHost[userHost.index(after: at)...]).lowercased()
-        if localNames.contains(host) { return true }
-        if let dot = host.firstIndex(of: "."), localNames.contains(String(host[..<dot])) {
-            return true
-        }
-        return false
-    }
-
-    private static let localNames: Set<String> = {
-        var names: Set<String> = ["localhost"]
-        let full = ProcessInfo.processInfo.hostName.lowercased()
-        names.insert(full)
-        if let dot = full.firstIndex(of: ".") {
-            names.insert(String(full[..<dot]))
-        }
-        if let localized = Host.current().localizedName?.lowercased() {
-            names.insert(localized)
-            names.insert(localized.replacingOccurrences(of: " ", with: "-"))
-        }
-        return names
-    }()
-
-    private static func meaningfulParent(_ path: String) -> String? {
-        let parent = (path as NSString).deletingLastPathComponent
-        if parent.isEmpty || parent == "/" || parent == "~" || parent == "." || parent == path {
-            return nil
-        }
-        return parent
-    }
-
-    private static func path(from label: String) -> String? {
-        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let at = trimmed.firstIndex(of: "@") {
-            let after = trimmed.index(after: at)
-            if after < trimmed.endIndex, let colon = trimmed[after...].firstIndex(of: ":") {
-                let path = trimmed[trimmed.index(after: colon)...].trimmingCharacters(in: .whitespaces)
-                if !path.isEmpty { return path }
-            }
-        }
-        if trimmed.hasPrefix("/") || trimmed.hasPrefix("~") { return trimmed }
-        return nil
-    }
-
-    private static func distinguishingParents(_ paths: [String?]) -> [String]? {
-        let concrete = paths.compactMap { $0 }
-        guard concrete.count == paths.count else { return nil }
-        let parents = concrete.map { parentComponents($0) }
-        guard let first = parents.first, !parents.allSatisfy({ $0 == first }) else { return nil }
-        let longest = parents.map(\.count).max() ?? 0
-        var take = 1
-        while take <= max(longest, 1) {
-            let marks = parents.map { suffix($0, take) }
-            if Set(marks).count == marks.count { return marks }
-            take += 1
-        }
-        return parents.map { suffix($0, longest) }
-    }
-
-    private static func parentComponents(_ path: String) -> [String] {
-        var text = path
-        while text.count > 1, text.hasSuffix("/") { text.removeLast() }
-        let pieces = text.split(separator: "/").map(String.init)
-        if pieces.count <= 1 { return [] }
-        return Array(pieces.dropLast())
-    }
-
-    private static func suffix(_ parts: [String], _ count: Int) -> String {
-        if parts.isEmpty { return "/" }
-        let start = max(0, parts.count - count)
-        return parts[start...].joined(separator: "/")
-    }
-
-    private static func merge(existing: String?, mark: String) -> String {
-        guard let existing, !existing.isEmpty else { return mark }
-        if existing == mark || existing.hasSuffix(" · " + mark) { return existing }
-        return existing + " · " + mark
-    }
-
-    private static func directoryName(_ path: String) -> String {
-        if path.isEmpty { return "" }
-        if path == "~" || path == "~/" { return "~" }
-        if path == "/" { return "/" }
-        let name = (path as NSString).lastPathComponent
-        if name.isEmpty || name == "/" { return "~" }
-        return name
-    }
 }
 
 private func paintFill(_ layer: CALayer?, color: NSColor, animated: Bool, duration requested: CFTimeInterval = 0.14) {
@@ -290,7 +126,10 @@ private final class TabRowView: NSView {
 
     /// Keyboard landing. A brief lift, then back to the selection fill.
     func pulse() {
-        guard selected, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        guard SelectionPulse.plays(
+            marked: selected,
+            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        ) else { return }
         pulseToken += 1
         let token = pulseToken
         let flash = BoomeChrome.isDark(surfaceBackground)
@@ -415,7 +254,7 @@ private final class TabRowView: NSView {
         )
     }
 
-    private var showsClose: Bool { selected || hovered }
+    private var showsClose: Bool { TabChrome.showsClose(selected: selected, hovered: hovered) }
 
     /// Wider than the glyph so the close affordance is the trailing edge, not a 10-point mark.
     private var closeHitRect: NSRect {
@@ -423,15 +262,15 @@ private final class TabRowView: NSView {
     }
 
     private func applyChrome(animated: Bool) {
-        let fill: NSColor
+        let role: BoomeChrome.RowRole
         if selected {
-            fill = BoomeChrome.selectionFill(on: surfaceBackground)
+            role = .selected
         } else if hovered {
-            fill = BoomeChrome.quietFill(on: surfaceBackground)
+            role = .hover
         } else {
-            fill = .clear
+            role = .rest
         }
-        paintFill(layer, color: fill, animated: animated)
+        paintFill(layer, color: BoomeChrome.rowFill(role, on: surfaceBackground), animated: animated)
         needsDisplay = true
     }
 
@@ -549,8 +388,7 @@ private final class QuietAddButton: NSView {
     }
 
     private func paint(animated: Bool) {
-        let fill = hovered ? BoomeChrome.quietFill(on: surfaceBackground) : .clear
-        paintFill(layer, color: fill, animated: animated)
+        paintFill(layer, color: BoomeChrome.newTabFill(hovered: hovered, on: surfaceBackground), animated: animated)
     }
 
     private static func plusImage(_ color: NSColor) -> NSImage? {
@@ -730,68 +568,20 @@ final class TabSidebar: NSView {
     }
 }
 
-/// One native horizontal tab. The surface view moves in and out of this
-/// window; closing the pane does not free the surface.
-final class TabPaneController: NSWindowController, NSWindowDelegate {
-    var onNewTab: (() -> Void)?
-    var onCloseTab: (() -> Void)?
-    var onBecomeKey: (() -> Void)?
-    private var allowClose = false
-
-    init(contentRect: NSRect) {
-        let window = NSWindow(
-            contentRect: contentRect,
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "Terminal"
-        window.minSize = NSSize(width: 480, height: 280)
-        window.isReleasedWhenClosed = false
-        window.tabbingIdentifier = MainWindowController.tabbingIdentifier
-        window.tabbingMode = .automatic
-        super.init(window: window)
-        window.delegate = self
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) is not used")
-    }
-
-    func applyChrome(background: NSColor) {
-        window?.backgroundColor = background
-        window?.titlebarAppearsTransparent = false
-        window?.titleVisibility = .visible
-        window?.appearance = NSAppearance(named: BoomeChrome.isDark(background) ? .darkAqua : .aqua)
-    }
-
-    func closePane() {
-        allowClose = true
-        close()
-    }
-
-    @objc override func newWindowForTab(_ sender: Any?) {
-        onNewTab?()
-    }
-
-    func windowShouldClose(_ sender: NSWindow) -> Bool {
-        if allowClose { return true }
-        onCloseTab?()
-        return false
-    }
-
-    func windowDidBecomeKey(_ notification: Notification) {
-        onBecomeKey?()
-    }
-}
-
 final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyHostDelegate {
-    static let tabbingIdentifier = "com.boom.boome.terminal"
-
     enum TabPlacement {
         case vertical
         case horizontal
+    }
+
+    private enum WindowFollowUp {
+        case closeWindow
+        case quit
+    }
+
+    private struct WindowProbe {
+        var remaining: Set<TabID>
+        var live: [TabID]
     }
 
     private let host = GhosttyHost.shared
@@ -809,11 +599,22 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
     private var nextOrdinal = 1
     private var placement: TabPlacement = .vertical
     private var sidebarCollapsed = false
-    private var applyingPlacement = false
     private var appearanceObserver: NSKeyValueObservation?
+    private var closePolicy = ClosePolicy()
+    private var windowProbe: WindowProbe?
+    private var windowFollowUp: WindowFollowUp?
+    private var allowWindowClose = false
+    private var confirmAlert: NSAlert?
 
     var isHorizontal: Bool { placement == .horizontal }
     var isSidebarCollapsed: Bool { placement == .horizontal || sidebarCollapsed }
+
+    /// Quit may proceed. A live process still has to be confirmed first.
+    func approveTermination() -> Bool { allowWindowClose }
+
+    func requestQuit() {
+        requestWindowClose(followUp: .quit)
+    }
 
     init() {
         let window = NSWindow(
@@ -828,14 +629,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         window.styleMask.insert(.fullSizeContentView)
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
-        window.tabbingIdentifier = Self.tabbingIdentifier
         window.tabbingMode = .disallowed
         super.init(window: window)
         window.delegate = self
         host.delegate = self
         buildChrome()
         applyTerminalChrome()
-        openTab(replacingLast: false)
+        newTab()
         appearanceObserver = NSApp.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, _ in
             DispatchQueue.main.async {
                 GhosttyHost.shared.applySystemColorScheme()
@@ -881,39 +681,66 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         applySidebarWidth(animated: true)
     }
 
+    /// The system tab command stays in this window.
     @objc override func newWindowForTab(_ sender: Any?) {
         newTab()
     }
 
     func newTab() {
-        openTab(replacingLast: false)
+        guard let tab = createTab(replacingLast: false) else { return }
+        install(tab)
+        var list = TabList(ids: tabs.map(\.id), selected: tabs.isEmpty ? 0 : selected)
+        list.append(tab.id)
+        tabs.append(tab)
+        selected = list.selected
+        updateSurfaceVisibility()
+        reloadSidebar()
+        focusSelected()
     }
 
     func closeCurrentTab() {
         closeTab(at: selected)
     }
 
-    private func closeTab(at index: Int) {
-        guard tabs.indices.contains(index) else { return }
-        host.requestClose(tabs[index].view.surface)
+    func cycle(_ cycle: GhosttyHost.Cycle) {
+        let move: TabNavigation.Move
+        switch cycle {
+        case .previous: move = .previous
+        case .next: move = .next
+        case .last: move = .last
+        case .index(let number): move = .index(number)
+        }
+        guard let landing = TabNavigation.landing(count: tabs.count, selected: selected, move: move) else { return }
+        let pulse = SelectionPulse.plays(
+            marked: landing.markKeyboardLanding,
+            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        )
+        select(landing.index, pulse: pulse)
     }
 
-    func cycle(_ cycle: GhosttyHost.Cycle) {
-        guard !tabs.isEmpty else { return }
-        let next: Int
-        switch cycle {
-        case .previous:
-            next = (selected - 1 + tabs.count) % tabs.count
-        case .next:
-            next = (selected + 1) % tabs.count
-        case .last:
-            next = tabs.count - 1
-        case .index(let number):
-            let index = number - 1
-            guard tabs.indices.contains(index) else { return }
-            next = index
+    private func requestWindowClose(followUp: WindowFollowUp) {
+        if allowWindowClose {
+            performWindowClose(followUp)
+            return
         }
-        select(next, pulse: true)
+        if closePolicy.isPending {
+            _ = closePolicy.reportWindow(live: [])
+            return
+        }
+        if windowProbe != nil { return }
+        let ids = tabs.map(\.id)
+        if ids.isEmpty {
+            allowWindowClose = true
+            if followUp == .closeWindow {
+                window?.close()
+            }
+            return
+        }
+        windowFollowUp = followUp
+        windowProbe = WindowProbe(remaining: Set(ids), live: [])
+        for tab in tabs {
+            host.requestClose(tab.view.surface)
+        }
     }
 
     private func buildChrome() {
@@ -981,17 +808,26 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         window?.tabbingMode = .disallowed
     }
 
-    private func openTab(replacingLast: Bool) {
+    private func createTab(replacingLast: Bool) -> TerminalTab? {
         let previous = tabs.indices.contains(selected) ? tabs[selected] : nil
-        let directory = previous.flatMap { host.inheritedWorkingDirectory(from: $0.view.surface) }
-            ?? FileManager.default.homeDirectoryForCurrentUser.path
+        let inherited = previous.flatMap { host.inheritedWorkingDirectory(from: $0.view.surface) }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let directory = TabDirectory.choose(inherited: inherited, home: home)
         let view = TerminalSurfaceView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         guard let surface = host.makeSurface(
             view: view,
             workingDirectory: directory,
             contextTab: !tabs.isEmpty && !replacingLast
-        ) else { return }
+        ) else { return nil }
         view.attach(surface)
+        let tab = TerminalTab(id: TabID(raw: nextOrdinal), view: view)
+        nextOrdinal += 1
+        tab.workingDirectory = directory
+        return tab
+    }
+
+    private func install(_ tab: TerminalTab) {
+        let view = tab.view
         view.translatesAutoresizingMaskIntoConstraints = false
         terminalHost.addSubview(view)
         NSLayoutConstraint.activate([
@@ -1000,28 +836,19 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
             view.topAnchor.constraint(equalTo: terminalHost.topAnchor),
             view.bottomAnchor.constraint(equalTo: terminalHost.bottomAnchor),
         ])
-        let tab = TerminalTab(ordinal: nextOrdinal, view: view)
-        nextOrdinal += 1
-        tab.workingDirectory = directory
-        tabs.append(tab)
-        select(tabs.count - 1)
     }
 
-    private func select(_ index: Int, pulse: Bool = false, fromWindow: Bool = false) {
+    private func select(_ index: Int, pulse: Bool = false) {
         guard tabs.indices.contains(index) else { return }
-        let changed = index != selected
         selected = index
         updateSurfaceVisibility()
-        reloadSidebar(pulse: pulse && changed)
+        reloadSidebar(pulse: pulse)
         focusSelected()
-        _ = fromWindow
     }
 
     private func focusSelected() {
-        guard tabs.indices.contains(selected) else { return }
-        let tab = tabs[selected]
-        let hostWindow = hostWindow(for: tab)
-        hostWindow?.makeFirstResponder(tab.view)
+        guard tabs.indices.contains(selected), let window else { return }
+        window.makeFirstResponder(tabs[selected].view)
         syncWindowTitles()
     }
 
@@ -1034,42 +861,20 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
     }
 
     private func remove(_ tab: TerminalTab) {
-        guard let index = tabs.firstIndex(where: { $0 === tab }) else { return }
-        let wasLast = tabs.count == 1
-        let closingSelected = index == selected
-        if wasLast {
-            openTab(replacingLast: true)
-        }
+        guard tabs.contains(where: { $0.id == tab.id }) else { return }
+        let created = tabs.count == 1 ? createTab(replacingLast: true) : nil
+        if tabs.count == 1, created == nil { return }
+        var list = TabList(ids: tabs.map(\.id), selected: selected)
+        guard list.close(tab.id, replacement: created?.id ?? tab.id) != nil else { return }
+        if let created { install(created) }
         tab.view.removeFromSuperview()
         host.destroy(tab.view.surface)
-        let wasMain = tab.pane == nil
-        tab.pane?.closePane()
-        tab.pane = nil
-        tabs.removeAll { $0 === tab }
-        if placement == .horizontal {
-            if wasMain, let promoted = tabs.first(where: { $0.pane != nil }) {
-                place(promoted.view, in: terminalHost, respectingSafeArea: false)
-                promoted.pane?.closePane()
-                promoted.pane = nil
-            }
-            if !tabs.isEmpty {
-                regroupHorizontal()
-            }
-        }
-        if wasLast {
-            if let replacement = tabs.indices.last {
-                select(replacement)
-            }
-            return
-        }
-        if closingSelected {
-            select(min(index, tabs.count - 1))
-            return
-        }
-        // A background tab closed under the visible one. Keep that shell.
-        if index < selected {
-            selected -= 1
-        }
+        var pool = tabs
+        if let created { pool.append(created) }
+        let byID = Dictionary(uniqueKeysWithValues: pool.map { ($0.id, $0) })
+        tabs = list.ids.compactMap { byID[$0] }
+        selected = list.selected
+        updateSurfaceVisibility()
         reloadSidebar()
         focusSelected()
     }
@@ -1100,20 +905,37 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
 
     func ghosttyHost(_ host: GhosttyHost, surface: GhosttyHost.Surface, closeProcessAlive alive: Bool) {
         guard let tab = tabs.first(where: { $0.view.surface === surface }) else { return }
-        if alive {
-            let alert = NSAlert()
-            alert.messageText = "Close this terminal?"
-            alert.informativeText = "A program is still running in \(tab.label)."
-            alert.addButton(withTitle: "Close")
-            alert.addButton(withTitle: "Cancel")
-            alert.beginSheetModal(for: window!) { [weak self] response in
-                if response == .alertFirstButtonReturn {
-                    self?.remove(tab)
-                }
+        if var probe = windowProbe {
+            guard probe.remaining.contains(tab.id) else { return }
+            probe.remaining.remove(tab.id)
+            if alive { probe.live.append(tab.id) }
+            if !probe.remaining.isEmpty {
+                windowProbe = probe
+                return
+            }
+            windowProbe = nil
+            let live = probe.live
+            switch closePolicy.reportWindow(live: live) {
+            case .ask(let subject):
+                presentConfirm(subject)
+            case .closeWindowNow:
+                performWindowClose(windowFollowUp ?? .closeWindow)
+            case .refused:
+                break
+            case .destroy:
+                break
             }
             return
         }
-        remove(tab)
+        switch closePolicy.reportTab(tab.id, alive: alive) {
+        case .destroy(let id):
+            guard let victim = tabs.first(where: { $0.id == id }) else { return }
+            remove(victim)
+        case .ask(let subject):
+            presentConfirm(subject)
+        case .refused, .closeWindowNow:
+            break
+        }
     }
 
     func ghosttyHost(_ host: GhosttyHost, surface: GhosttyHost.Surface, cursor: GhosttyHost.CursorStyle) {
@@ -1127,11 +949,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        true
+        if allowWindowClose || tabs.isEmpty { return true }
+        requestWindowClose(followUp: .closeWindow)
+        return false
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
-        noteHorizontalKey(notification.object as? NSWindow)
+        focusSelected()
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -1140,7 +964,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
 
     private func setPlacement(_ next: TabPlacement) {
         guard next != placement else { return }
-        foldPanesIntoMainWindow()
         placement = next
         sidebar.setAxis(next == .horizontal ? .horizontal : .vertical)
         NSLayoutConstraint.deactivate(verticalChrome + horizontalChrome)
@@ -1188,66 +1011,76 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
 
     @objc private func closeOthersFromMenu(_ sender: NSMenuItem) {
         guard let index = sender.representedObject as? Int else { return }
-        for victim in tabs.indices.reversed() where victim != index {
-            closeTab(at: victim)
-        }
+        let ids = TabList(ids: tabs.map(\.id), selected: selected).requestingCloseOthers(keeping: index)
+        requestClose(ids: ids)
     }
 
     @objc private func closeRightFromMenu(_ sender: NSMenuItem) {
         guard let index = sender.representedObject as? Int else { return }
-        for victim in tabs.indices.reversed() where victim > index {
-            closeTab(at: victim)
+        let ids = TabList(ids: tabs.map(\.id), selected: selected).requestingCloseRight(of: index)
+        requestClose(ids: ids)
+    }
+
+    private func closeTab(at index: Int) {
+        guard tabs.indices.contains(index) else { return }
+        requestClose(ids: [tabs[index].id])
+    }
+
+    private func requestClose(ids: [TabID]) {
+        if closePolicy.isPending || windowProbe != nil { return }
+        for id in ids {
+            guard let tab = tabs.first(where: { $0.id == id }) else { continue }
+            host.requestClose(tab.view.surface)
         }
     }
 
-    private func foldPanesIntoMainWindow() {
-        guard tabs.contains(where: { $0.pane != nil }) else { return }
-        applyingPlacement = true
-        defer { applyingPlacement = false }
-        for tab in tabs {
-            place(tab.view, in: terminalHost, respectingSafeArea: false)
-            tab.pane?.closePane()
-            tab.pane = nil
+    private func presentConfirm(_ subject: ClosePolicy.Subject) {
+        guard let window else {
+            _ = closePolicy.resolve(confirmed: false)
+            return
         }
-        window?.tabbingMode = .disallowed
-        updateSurfaceVisibility()
-    }
-
-    private func enterHorizontal() {
-        applyingPlacement = true
-        defer { applyingPlacement = false }
-        applyTerminalChrome()
-        applySidebarWidth(animated: false)
-        guard tabs.indices.contains(selected) else { return }
-        for (index, tab) in tabs.enumerated() where index != selected {
-            if tab.pane == nil {
-                tab.pane = makePane()
+        guard confirmAlert == nil else { return }
+        let alert = NSAlert()
+        switch subject {
+        case .tab(let id):
+            let label = tabs.first(where: { $0.id == id })?.label ?? "this terminal"
+            alert.messageText = "Close this terminal?"
+            alert.informativeText = "A program is still running in \(label)."
+        case .window:
+            alert.messageText = "Close this window?"
+            alert.informativeText = "A program is still running."
+        }
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Close")
+        alert.addButton(withTitle: "Cancel")
+        confirmAlert = alert
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard let self else { return }
+            self.confirmAlert = nil
+            let confirmed = response == .alertFirstButtonReturn
+            switch self.closePolicy.resolve(confirmed: confirmed) {
+            case .destroy(let ids):
+                for id in ids {
+                    guard let tab = self.tabs.first(where: { $0.id == id }) else { continue }
+                    self.remove(tab)
+                }
+            case .closeWindow:
+                self.performWindowClose(self.windowFollowUp ?? .closeWindow)
+            case .keep, .none:
+                self.windowFollowUp = nil
             }
-            place(tab.view, in: tab.pane?.window?.contentView, respectingSafeArea: true)
-            tab.pane?.window?.title = tab.label
         }
-        let current = tabs[selected]
-        current.pane?.closePane()
-        current.pane = nil
-        place(current.view, in: terminalHost, respectingSafeArea: false)
-        window?.title = current.label
-        regroupHorizontal()
-        updateSurfaceVisibility()
-        focusSelected()
     }
 
-    private func enterVertical() {
-        applyingPlacement = true
-        defer { applyingPlacement = false }
-        for tab in tabs {
-            place(tab.view, in: terminalHost, respectingSafeArea: false)
-            tab.pane?.closePane()
-            tab.pane = nil
+    private func performWindowClose(_ followUp: WindowFollowUp) {
+        windowFollowUp = nil
+        allowWindowClose = true
+        switch followUp {
+        case .closeWindow:
+            window?.close()
+        case .quit:
+            NSApp.terminate(nil)
         }
-        applyTerminalChrome()
-        applySidebarWidth(animated: false)
-        updateSurfaceVisibility()
-        focusSelected()
     }
 
     private func applySidebarWidth(animated: Bool) {
@@ -1281,83 +1114,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         }
     }
 
-    private func makePane() -> TabPaneController {
-        let pane = TabPaneController(contentRect: window?.frame ?? NSRect(x: 0, y: 0, width: 1100, height: 720))
-        pane.onNewTab = { [weak self] in self?.newTab() }
-        pane.onCloseTab = { [weak self, weak pane] in
-            guard let self, let pane,
-                  let index = self.tabs.firstIndex(where: { $0.pane === pane }) else { return }
-            self.closeTab(at: index)
-        }
-        pane.onBecomeKey = { [weak self, weak pane] in
-            self?.noteHorizontalKey(pane?.window)
-        }
-        pane.applyChrome(background: host.terminalBackground())
-        return pane
-    }
-
-    private func regroupHorizontal() {
-        let windows = tabs.compactMap { hostWindow(for: $0) }
-        guard windows.count == tabs.count, let first = windows.first else { return }
-        let alreadyApplying = applyingPlacement
-        applyingPlacement = true
-        defer { if !alreadyApplying { applyingPlacement = false } }
-        for item in windows {
-            item.tabbingIdentifier = Self.tabbingIdentifier
-            item.tabbingMode = .automatic
-            item.tabGroup?.removeWindow(item)
-        }
-        var anchor = first
-        for item in windows.dropFirst() {
-            anchor.addTabbedWindow(item, ordered: .above)
-            anchor = item
-        }
-        if tabs.indices.contains(selected) {
-            first.tabGroup?.selectedWindow = hostWindow(for: tabs[selected])
-        }
-    }
-
     private func updateSurfaceVisibility() {
         for (offset, tab) in tabs.enumerated() {
             tab.view.showSurface(offset == selected)
         }
     }
 
-    private func place(_ view: NSView, in container: NSView?, respectingSafeArea: Bool) {
-        guard let container else { return }
-        view.removeFromSuperview()
-        view.isHidden = false
-        view.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(view)
-        let top = respectingSafeArea ? container.safeAreaLayoutGuide.topAnchor : container.topAnchor
-        NSLayoutConstraint.activate([
-            view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            view.topAnchor.constraint(equalTo: top),
-            view.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-        ])
-    }
-
-    private func hostWindow(for tab: TerminalTab) -> NSWindow? {
-        tab.pane?.window ?? window
-    }
-
     private func syncWindowTitles() {
-        if placement == .vertical {
-            if tabs.indices.contains(selected) {
-                window?.title = tabs[selected].label
-            }
-            return
+        if tabs.indices.contains(selected) {
+            window?.title = tabs[selected].label
         }
-        for tab in tabs {
-            hostWindow(for: tab)?.title = tab.label
-        }
-    }
-
-    private func noteHorizontalKey(_ window: NSWindow?) {
-        guard placement == .horizontal, !applyingPlacement, let window else { return }
-        guard let index = tabs.firstIndex(where: { hostWindow(for: $0) === window }) else { return }
-        guard index != selected else { return }
-        select(index, fromWindow: true)
     }
 }
