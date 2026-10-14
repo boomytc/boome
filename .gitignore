@@ -1,0 +1,7 @@
+.DS_Store
+build/
+DerivedData/
+
+# Ghostty's own build outputs stay inside the submodule and are not
+# committed: zig-out/, .zig-cache/, macos/GhosttyKit.xcframework/.
+# The SDK shim and downloaded Zig live under ~/.cache/boome and ~/.local/zig.
