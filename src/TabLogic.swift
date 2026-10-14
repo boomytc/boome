@@ -110,6 +110,30 @@ enum TabNavigation {
     }
 }
 
+/// Which close a library action asks for. The tag is `ghostty_action_tag_e`
+/// from the pinned v1.3.1 header. Close Window is not a tab close: the last
+/// tab must not be replaced in its place.
+enum LibraryActionRoute {
+    enum Close: Equatable {
+        case tab
+        case window
+    }
+
+    static let closeTab: UInt32 = 3
+    static let closeWindow: UInt32 = 49
+
+    static func close(tag: UInt32) -> Close? {
+        switch tag {
+        case closeTab:
+            return .tab
+        case closeWindow:
+            return .window
+        default:
+            return nil
+        }
+    }
+}
+
 /// One close prompt for the whole window. A second prompt is refused while
 /// the first is unanswered. Cancel keeps the tabs. Confirm removes only the
 /// tab that was asked about, or closes the window. A dead process is not a

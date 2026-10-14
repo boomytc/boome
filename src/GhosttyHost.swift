@@ -82,6 +82,11 @@ final class GhosttyHost: NSObject {
     }
 
     func start() {
+        precondition(
+            UInt32(GHOSTTY_ACTION_CLOSE_TAB.rawValue) == LibraryActionRoute.closeTab
+                && UInt32(GHOSTTY_ACTION_CLOSE_WINDOW.rawValue) == LibraryActionRoute.closeWindow,
+            "close action tags drifted from the pinned Ghostty header"
+        )
         if app != nil { return }
         let code = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
         if code != GHOSTTY_SUCCESS {
@@ -465,7 +470,14 @@ final class GhosttyHost: NSObject {
             delegate?.ghosttyHostOpenNewTab(self)
             return true
         case GHOSTTY_ACTION_CLOSE_TAB, GHOSTTY_ACTION_CLOSE_WINDOW:
-            delegate?.ghosttyHostCloseCurrentTab(self)
+            switch LibraryActionRoute.close(tag: UInt32(action.tag.rawValue)) {
+            case .tab:
+                delegate?.ghosttyHostCloseCurrentTab(self)
+            case .window:
+                delegate?.ghosttyHostCloseWindow(self)
+            case nil:
+                return false
+            }
             return true
         case GHOSTTY_ACTION_GOTO_TAB:
             let raw = action.action.goto_tab.rawValue
@@ -672,6 +684,7 @@ final class GhosttyHost: NSObject {
 protocol GhosttyHostDelegate: AnyObject {
     func ghosttyHostOpenNewTab(_ host: GhosttyHost)
     func ghosttyHostCloseCurrentTab(_ host: GhosttyHost)
+    func ghosttyHostCloseWindow(_ host: GhosttyHost)
     func ghosttyHost(_ host: GhosttyHost, cycle: GhosttyHost.Cycle)
     func ghosttyHost(_ host: GhosttyHost, surface: GhosttyHost.Surface, setTitle title: String)
     func ghosttyHost(_ host: GhosttyHost, surface: GhosttyHost.Surface, setTabTitle title: String)

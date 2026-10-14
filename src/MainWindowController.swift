@@ -883,6 +883,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
 
     func ghosttyHostCloseCurrentTab(_ host: GhosttyHost) { closeCurrentTab() }
 
+    func ghosttyHostCloseWindow(_ host: GhosttyHost) {
+        requestWindowClose(followUp: .closeWindow)
+    }
+
     func ghosttyHost(_ host: GhosttyHost, cycle: GhosttyHost.Cycle) { self.cycle(cycle) }
 
     func ghosttyHost(_ host: GhosttyHost, surface: GhosttyHost.Surface, setTitle title: String) {

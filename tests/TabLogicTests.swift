@@ -9,6 +9,7 @@ enum TabLogicTests {
         tabList()
         closePolicy()
         navigation()
+        closeActions()
         presentation()
         fills()
         pulse()
@@ -189,6 +190,55 @@ enum TabLogicTests {
             "a numbered tab lands on that row and marks it",
             numbered == TabNavigation.Landing(index: 1, markKeyboardLanding: true)
         )
+    }
+
+    static func closeActions() {
+        let tags = ghosttyActionTags()
+        guard let closeTab = tags["GHOSTTY_ACTION_CLOSE_TAB"],
+              let closeWindow = tags["GHOSTTY_ACTION_CLOSE_WINDOW"],
+              let quit = tags["GHOSTTY_ACTION_QUIT"] else {
+            check("close window action closes the window", false, "header tags missing")
+            return
+        }
+        check(
+            "close tab action closes the current tab",
+            LibraryActionRoute.close(tag: closeTab) == .tab
+        )
+        check(
+            "close window action closes the window",
+            LibraryActionRoute.close(tag: closeWindow) == .window
+        )
+        check(
+            "close window action is not a tab close",
+            LibraryActionRoute.close(tag: closeWindow) != .tab && closeWindow != closeTab
+        )
+        check(
+            "quit is not routed as a tab or window close",
+            LibraryActionRoute.close(tag: quit) == nil
+        )
+    }
+
+    /// Ordinals of `ghostty_action_tag_e` in the pinned header. The route
+    /// function is then called with those values.
+    static func ghosttyActionTags() -> [String: UInt32] {
+        let path = "vendor/ghostty/include/ghostty.h"
+        guard let text = try? String(contentsOfFile: path, encoding: .utf8),
+              let quit = text.range(of: "\n  GHOSTTY_ACTION_QUIT,"),
+              let end = text.range(of: "} ghostty_action_tag_e;", range: quit.lowerBound..<text.endIndex) else {
+            return [:]
+        }
+        var tags: [String: UInt32] = [:]
+        var value: UInt32 = 0
+        let body = text[text.index(after: quit.lowerBound)..<end.lowerBound]
+        for line in body.split(separator: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasPrefix("GHOSTTY_ACTION_") else { continue }
+            let name = trimmed.prefix { $0 != "," && $0 != " " && $0 != "=" && $0 != "/" }
+            guard !name.isEmpty else { continue }
+            tags[String(name)] = value
+            value += 1
+        }
+        return tags
     }
 
     static func presentation() {
