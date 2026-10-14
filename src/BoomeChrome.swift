@@ -24,23 +24,25 @@ enum BoomeChrome {
         isDark(background) ? NSColor(white: 1, alpha: 0.08) : NSColor(white: 0, alpha: 0.06)
     }
 
+    /// Selected row. Same family as the terminal background, a step above hover.
+    static func selectionFill(on background: NSColor) -> NSColor {
+        isDark(background) ? NSColor(white: 1, alpha: 0.14) : NSColor(white: 0, alpha: 0.08)
+    }
+
     static func hairline(on background: NSColor) -> NSColor {
         isDark(background) ? NSColor(white: 1, alpha: 0.12) : NSColor(white: 0, alpha: 0.1)
     }
 
     static func text(selected: Bool, on background: NSColor) -> NSColor {
-        if selected || !isDark(background) {
-            return ink
+        if isDark(background) {
+            return NSColor(srgbRed: 0.93, green: 0.91, blue: 0.88, alpha: selected ? 1 : 0.78)
         }
-        return NSColor(srgbRed: 0.93, green: 0.91, blue: 0.88, alpha: 1)
+        return ink
     }
 
-    /// Second line under a tab name. On the accent, full ink stays readable;
-    /// a faded ink blends into the orange and drops below the primary.
     static func secondaryText(selected: Bool, on background: NSColor) -> NSColor {
-        if selected { return ink }
         if isDark(background) {
-            return NSColor(srgbRed: 0.72, green: 0.70, blue: 0.66, alpha: 1)
+            return NSColor(srgbRed: 0.72, green: 0.70, blue: 0.66, alpha: selected ? 1 : 0.85)
         }
         return NSColor(srgbRed: 0.38, green: 0.32, blue: 0.27, alpha: 1)
     }

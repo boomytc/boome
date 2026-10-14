@@ -214,7 +214,8 @@ private func paintFill(_ layer: CALayer?, color: NSColor, animated: Bool, durati
 }
 
 /// One sidebar row. The same ghost on every row carried no information and
-/// ate the title, so the row is type only. Orange is the selected fill.
+/// ate the title, so the row is type only. Selection is a lighter pass of
+/// the terminal background, not a second color.
 private final class TabRowView: NSView {
     var onSelect: (() -> Void)?
     var onClose: (() -> Void)?
@@ -268,16 +269,18 @@ private final class TabRowView: NSView {
         heightConstraint = constraint
     }
 
-    /// Keyboard landing. A lighter orange, then back to the selection fill.
+    /// Keyboard landing. A brief lift, then back to the selection fill.
     func pulse() {
         guard selected, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
         pulseToken += 1
         let token = pulseToken
-        let flash = BoomeChrome.accent.blended(withFraction: 0.4, of: .white) ?? BoomeChrome.accent
+        let flash = BoomeChrome.isDark(surfaceBackground)
+            ? NSColor(white: 1, alpha: 0.22)
+            : NSColor(white: 0, alpha: 0.12)
         paintFill(layer, color: flash, animated: false)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.09) { [weak self] in
             guard let self, self.pulseToken == token, self.selected else { return }
-            paintFill(self.layer, color: BoomeChrome.accent, animated: true, duration: 0.28)
+            paintFill(self.layer, color: BoomeChrome.selectionFill(on: self.surfaceBackground), animated: true, duration: 0.28)
         }
     }
 
@@ -397,7 +400,7 @@ private final class TabRowView: NSView {
     private func applyChrome(animated: Bool) {
         let fill: NSColor
         if selected {
-            fill = BoomeChrome.accent
+            fill = BoomeChrome.selectionFill(on: surfaceBackground)
         } else if hovered {
             fill = BoomeChrome.quietFill(on: surfaceBackground)
         } else {
