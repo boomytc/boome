@@ -12,9 +12,11 @@ enum BoomeMain {
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var windowController: MainWindowController?
     private var keyMonitor: Any?
+    private var horizontalItem: NSMenuItem?
+    private var sidebarItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         GhosttyHost.shared.start()
@@ -70,6 +72,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowController?.cycle(.next)
     }
 
+    @objc private func toggleTabPlacement(_ sender: Any?) {
+        windowController?.toggleTabPlacement()
+    }
+
+    @objc private func toggleSidebar(_ sender: Any?) {
+        windowController?.toggleSidebar()
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        let horizontal = windowController?.isHorizontal == true
+        horizontalItem?.state = horizontal ? .on : .off
+        sidebarItem?.title = windowController?.isSidebarCollapsed == true ? "Show Sidebar" : "Hide Sidebar"
+    }
+
     private func installMenu() {
         let main = NSMenu()
 
@@ -110,6 +126,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         next.keyEquivalentModifierMask = [.command, .shift]
         next.target = self
         tab.addItem(next)
+        tab.addItem(.separator())
+        let horizontal = NSMenuItem(title: "Use Horizontal Tabs", action: #selector(toggleTabPlacement(_:)), keyEquivalent: "t")
+        horizontal.keyEquivalentModifierMask = [.command, .option]
+        horizontal.target = self
+        tab.addItem(horizontal)
+        horizontalItem = horizontal
+        let sidebar = NSMenuItem(title: "Hide Sidebar", action: #selector(toggleSidebar(_:)), keyEquivalent: "s")
+        sidebar.keyEquivalentModifierMask = [.command, .option]
+        sidebar.target = self
+        tab.addItem(sidebar)
+        sidebarItem = sidebar
+        tab.delegate = self
 
         let windowItem = NSMenuItem()
         main.addItem(windowItem)
