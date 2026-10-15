@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Run the tab-list, presentation, close-policy, and shortcut decisions.
+# Run tab decisions, project-tree fixtures, panel layout, and embedded-editor checks.
 # Same Swift toolchain as scripts/build.sh. Does not link libghostty.
 set -euo pipefail
 
@@ -17,6 +17,11 @@ swiftc \
   -o "$out" \
   "$root/src/TabLogic.swift" \
   "$root/src/BoomeChrome.swift" \
+  "$root/src/ProjectTree.swift" \
+  "$root/src/ProjectTextFile.swift" \
+  "$root/src/ProjectExplorerView.swift" \
+  "$root/src/FileEditorView.swift" \
+  "$root/tests/ProjectExplorerTests.swift" \
   "$root/tests/TabLogicTests.swift"
 
 "$out"

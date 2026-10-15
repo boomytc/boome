@@ -180,6 +180,10 @@ swiftc \
   "$root/src/AppDelegate.swift" \
   "$root/src/BoomeChrome.swift" \
   "$root/src/TabLogic.swift" \
+  "$root/src/ProjectTree.swift" \
+  "$root/src/ProjectTextFile.swift" \
+  "$root/src/ProjectExplorerView.swift" \
+  "$root/src/FileEditorView.swift" \
   "$root/src/GhosttyHost.swift" \
   "$root/src/TerminalSurfaceView.swift" \
   "$root/src/MainWindowController.swift"

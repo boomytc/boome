@@ -12,10 +12,12 @@ enum BoomeMain {
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemValidation {
     private var windowController: MainWindowController?
     private var keyMonitor: Any?
     private var sidebarItem: NSMenuItem?
+    private var explorerItem: NSMenuItem?
+    private var editorItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         GhosttyHost.shared.start()
@@ -68,7 +70,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func closeTab(_ sender: Any?) {
-        windowController?.closeCurrentTab()
+        if windowController?.isEditorFocused == true { windowController?.closeEditor() }
+        else { windowController?.closeCurrentTab() }
     }
 
     @objc private func previousTab(_ sender: Any?) {
@@ -83,8 +86,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         windowController?.toggleSidebar()
     }
 
+    @objc private func toggleExplorer(_ sender: Any?) { windowController?.toggleProjectExplorer() }
+    @objc private func toggleEditor(_ sender: Any?) { windowController?.toggleEditor() }
+    @objc private func saveFile(_ sender: Any?) { windowController?.saveFile() }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(saveFile(_:)) { return windowController?.canSaveFile == true }
+        return true
+    }
+
     func menuNeedsUpdate(_ menu: NSMenu) {
         sidebarItem?.title = windowController?.isSidebarCollapsed == true ? "Show Sidebar" : "Hide Sidebar"
+        explorerItem?.title = windowController?.isProjectExplorerVisible == true ? "Hide Project Explorer" : "Show Project Explorer"
+        editorItem?.title = windowController?.isEditorVisible == true ? "Hide Editor" : "Show Editor"
     }
 
     private func installMenu() {
@@ -100,13 +114,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         quit.keyEquivalentModifierMask = .command
         appMenu.addItem(quit)
 
+        let fileItem = NSMenuItem()
+        main.addItem(fileItem)
+        let file = NSMenu(title: "File")
+        fileItem.submenu = file
+        let save = NSMenuItem(title: "Save", action: #selector(saveFile(_:)), keyEquivalent: "s")
+        save.target = self
+        file.addItem(save)
+
         let editItem = NSMenuItem()
         main.addItem(editItem)
         let edit = NSMenu(title: "Edit")
         editItem.submenu = edit
+        edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        let redo = NSMenuItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+        redo.keyEquivalentModifierMask = [.command, .shift]
+        edit.addItem(redo)
+        edit.addItem(.separator())
         edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        edit.addItem(.separator())
+        let find = NSMenuItem(title: "Find…", action: #selector(NSResponder.performTextFinderAction(_:)), keyEquivalent: "f")
+        find.tag = NSTextFinder.Action.showFindInterface.rawValue
+        edit.addItem(find)
 
         let tabItem = NSMenuItem()
         main.addItem(tabItem)
@@ -133,6 +164,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         sidebar.target = self
         tab.addItem(sidebar)
         sidebarItem = sidebar
+        let explorer = NSMenuItem(title: "Show Project Explorer", action: #selector(toggleExplorer(_:)), keyEquivalent: "e")
+        explorer.keyEquivalentModifierMask = [.command, .option]
+        explorer.target = self
+        tab.addItem(explorer)
+        explorerItem = explorer
+        let editor = NSMenuItem(title: "Show Editor", action: #selector(toggleEditor(_:)), keyEquivalent: "")
+        editor.target = self
+        tab.addItem(editor)
+        editorItem = editor
         tab.delegate = self
 
         let windowItem = NSMenuItem()

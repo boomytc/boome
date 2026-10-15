@@ -369,20 +369,25 @@ private final class SidebarToggleButton: NSView {
 
     private var surfaceBackground = BoomeChrome.fallbackBackground
     private var hovered = false
+    private var collapsed = true
     private var tracking: NSTrackingArea?
+    enum Panel { case tabs, explorer, editor }
+    private let panel: Panel
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { false }
     override var mouseDownCanMoveWindow: Bool { false }
 
-    override init(frame frameRect: NSRect) {
+    init(frame frameRect: NSRect, panel: Panel = .tabs) {
+        self.panel = panel
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.cornerRadius = 6
         layer?.masksToBounds = true
         layer?.backgroundColor = NSColor.clear.cgColor
         setAccessibilityRole(.button)
-        setAccessibilityIdentifier("SidebarToggle")
+        setAccessibilityElement(true)
+        setAccessibilityIdentifier(panel == .explorer ? "ProjectExplorerToggle" : panel == .editor ? "EditorToggle" : "SidebarToggle")
     }
 
     @available(*, unavailable)
@@ -399,10 +404,15 @@ private final class SidebarToggleButton: NSView {
     }
 
     func note(collapsed: Bool) {
-        let title = collapsed ? "展开侧栏" : "收起侧栏"
-        toolTip = "\(title) (⌥⌘S)"
+        self.collapsed = collapsed
+        let name = panel == .explorer ? "项目浏览器" : panel == .editor ? "编辑器" : "侧栏"
+        let title = "\(collapsed ? "展开" : "收起")\(name)"
+        let shortcut = panel == .explorer ? " (⌥⌘E)" : panel == .tabs ? " (⌥⌘S)" : ""
+        toolTip = title + shortcut
         setAccessibilityLabel(title)
         setAccessibilityHelp(toolTip)
+        setAccessibilityValue(collapsed ? 0 : 1)
+        paint(animated: false)
     }
 
     override func updateTrackingAreas() {
@@ -437,6 +447,12 @@ private final class SidebarToggleButton: NSView {
         onPress?()
     }
 
+    override func accessibilityPerformPress() -> Bool {
+        guard let onPress else { return false }
+        onPress()
+        return true
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         let color = BoomeChrome.text(selected: hovered, on: surfaceBackground)
         let side: CGFloat = 15
@@ -446,7 +462,7 @@ private final class SidebarToggleButton: NSView {
             width: side,
             height: side
         )
-        Self.symbol(color)?.draw(
+        Self.symbol(color, name: panel == .explorer ? "folder" : panel == .editor ? "sidebar.right" : "sidebar.left")?.draw(
             in: icon,
             from: .zero,
             operation: .sourceOver,
@@ -457,11 +473,14 @@ private final class SidebarToggleButton: NSView {
     }
 
     private func paint(animated: Bool) {
-        paintFill(layer, color: BoomeChrome.newTabFill(hovered: hovered, on: surfaceBackground), animated: animated)
+        let fill = !collapsed
+            ? BoomeChrome.selectionFill(on: surfaceBackground)
+            : BoomeChrome.newTabFill(hovered: hovered, on: surfaceBackground)
+        paintFill(layer, color: fill, animated: animated)
     }
 
-    private static func symbol(_ color: NSColor) -> NSImage? {
-        let symbol = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: nil)
+    private static func symbol(_ color: NSColor, name: String) -> NSImage? {
+        let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil)
         let size = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
         let palette = NSImage.SymbolConfiguration(paletteColors: [color])
         return symbol?.withSymbolConfiguration(size.applying(palette))
@@ -613,14 +632,27 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
     private let host = GhosttyHost.shared
     private let sidebar = TabSidebar()
     private let sidebarToggle = SidebarToggleButton(frame: NSRect(x: 0, y: 0, width: 28, height: 28))
+    private let explorerToggle = SidebarToggleButton(frame: NSRect(x: 0, y: 0, width: 28, height: 28), panel: .explorer)
+    private let editorToggle = SidebarToggleButton(frame: NSRect(x: 0, y: 0, width: 28, height: 28), panel: .editor)
+    private let projectExplorer = ProjectExplorerView(frame: .zero)
+    private let fileEditor = FileEditorView(frame: .zero)
     private let terminalHost = NSView()
     private let separator = NSView()
+    private let explorerSeparator = NSView()
+    private let editorSeparator = NSView()
+    private var editorWidth: NSLayoutConstraint!
+    private var editorSeparatorWidth: NSLayoutConstraint!
     private var sidebarWidth: NSLayoutConstraint!
     private var separatorWidth: NSLayoutConstraint!
+    private var explorerWidth: NSLayoutConstraint!
+    private var explorerSeparatorWidth: NSLayoutConstraint!
     private var tabs: [TerminalTab] = []
     private var selected = 0
     private var nextOrdinal = 1
     private var sidebarCollapsed = false
+    private var explorerVisible = false
+    private var editorVisible = false
+    private var adjustingLayout = false
     private var appearanceObserver: NSKeyValueObservation?
     private var closePolicy = ClosePolicy()
     private var windowProbe: WindowProbe?
@@ -629,6 +661,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
     private var confirmAlert: NSAlert?
 
     var isSidebarCollapsed: Bool { sidebarCollapsed }
+    var isProjectExplorerVisible: Bool { explorerVisible }
+    var isEditorVisible: Bool { editorVisible }
+    var isEditorFocused: Bool { editorVisible && fileEditor.isFocused }
+    var canSaveFile: Bool { fileEditor.document != nil && fileEditor.hasUnsavedChanges && !fileEditor.isBusy }
 
     /// Quit may proceed. A live process still has to be confirmed first.
     func approveTermination() -> Bool { allowWindowClose }
@@ -689,7 +725,41 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         sidebarCollapsed.toggle()
         applySidebarWidth(animated: true)
         rememberChrome()
-        focusSelected()
+        if !fileEditor.isFocused && !projectExplorer.isFocused { focusSelected() }
+    }
+
+    func toggleProjectExplorer() {
+        let wasFocused = projectExplorer.isFocused
+        explorerVisible.toggle()
+        syncProjectExplorer()
+        projectExplorer.setActive(explorerVisible)
+        applySidebarWidth(animated: true)
+        rememberChrome()
+        if explorerVisible { projectExplorer.focus() }
+        else if wasFocused { focusSelected() }
+    }
+
+    func toggleEditor() {
+        if editorVisible { closeEditor() }
+        else { showEditor(); fileEditor.focus() }
+    }
+
+    func closeEditor() {
+        fileEditor.prepareToLeave { [weak self] allowed in
+            guard allowed, let self else { return }
+            self.editorVisible = false
+            self.fileEditor.isHidden = true
+            self.applySidebarWidth(animated: true)
+            self.focusSelected()
+        }
+    }
+
+    func saveFile() { fileEditor.save() }
+
+    private func showEditor() {
+        editorVisible = true
+        fileEditor.isHidden = false
+        applySidebarWidth(animated: true)
     }
 
     /// The system tab command stays in this window.
@@ -741,10 +811,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         if windowProbe != nil { return }
         let ids = tabs.map(\.id)
         if ids.isEmpty {
-            allowWindowClose = true
-            if followUp == .closeWindow {
-                window?.close()
-            }
+            performWindowClose(followUp)
             return
         }
         windowFollowUp = followUp
@@ -758,15 +825,26 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         guard let content = window?.contentView else { return }
         sidebar.translatesAutoresizingMaskIntoConstraints = false
         terminalHost.translatesAutoresizingMaskIntoConstraints = false
+        projectExplorer.translatesAutoresizingMaskIntoConstraints = false
+        fileEditor.translatesAutoresizingMaskIntoConstraints = false
+        fileEditor.isHidden = true
         content.addSubview(sidebar)
+        content.addSubview(projectExplorer)
         content.addSubview(terminalHost)
+        content.addSubview(fileEditor)
 
-        separator.wantsLayer = true
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(separator)
+        for line in [separator, explorerSeparator, editorSeparator] {
+            line.wantsLayer = true
+            line.translatesAutoresizingMaskIntoConstraints = false
+            content.addSubview(line)
+        }
 
         sidebarWidth = sidebar.widthAnchor.constraint(equalToConstant: 200)
         separatorWidth = separator.widthAnchor.constraint(equalToConstant: 1)
+        explorerWidth = projectExplorer.widthAnchor.constraint(equalToConstant: 0)
+        explorerSeparatorWidth = explorerSeparator.widthAnchor.constraint(equalToConstant: 0)
+        editorWidth = fileEditor.widthAnchor.constraint(equalToConstant: 0)
+        editorSeparatorWidth = editorSeparator.widthAnchor.constraint(equalToConstant: 0)
         let safe = content.safeAreaLayoutGuide
         NSLayoutConstraint.activate([
             sidebar.leadingAnchor.constraint(equalTo: content.leadingAnchor),
@@ -777,16 +855,37 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
             separator.topAnchor.constraint(equalTo: safe.topAnchor),
             separator.bottomAnchor.constraint(equalTo: content.bottomAnchor),
             separatorWidth,
-            terminalHost.leadingAnchor.constraint(equalTo: separator.trailingAnchor),
-            terminalHost.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            projectExplorer.leadingAnchor.constraint(equalTo: separator.trailingAnchor),
+            projectExplorer.topAnchor.constraint(equalTo: safe.topAnchor),
+            projectExplorer.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            explorerWidth,
+            explorerSeparator.leadingAnchor.constraint(equalTo: projectExplorer.trailingAnchor),
+            explorerSeparator.topAnchor.constraint(equalTo: safe.topAnchor),
+            explorerSeparator.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            explorerSeparatorWidth,
+            terminalHost.leadingAnchor.constraint(equalTo: explorerSeparator.trailingAnchor),
             terminalHost.topAnchor.constraint(equalTo: safe.topAnchor),
             terminalHost.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            editorSeparator.leadingAnchor.constraint(equalTo: terminalHost.trailingAnchor),
+            editorSeparator.topAnchor.constraint(equalTo: safe.topAnchor),
+            editorSeparator.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            editorSeparatorWidth,
+            fileEditor.leadingAnchor.constraint(equalTo: editorSeparator.trailingAnchor),
+            fileEditor.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            fileEditor.topAnchor.constraint(equalTo: safe.topAnchor),
+            fileEditor.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            editorWidth,
         ])
 
         sidebar.onSelect = { [weak self] index in self?.select(index) }
         sidebar.onClose = { [weak self] index in self?.closeTab(at: index) }
         sidebar.onNew = { [weak self] in self?.newTab() }
         sidebar.onMenu = { [weak self] index, event in self?.showTabMenu(at: index, event: event) }
+        projectExplorer.onClose = { [weak self] in self?.toggleProjectExplorer() }
+        projectExplorer.onReturnToTerminal = { [weak self] in self?.focusSelected() }
+        projectExplorer.onOpenFile = { [weak self] url in self?.fileEditor.open(url) }
+        fileEditor.onShow = { [weak self] in self?.showEditor() }
+        fileEditor.onClose = { [weak self] in self?.closeEditor() }
         installSidebarToggle()
     }
 
@@ -799,7 +898,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         sidebarToggle.onPress = { [weak self] in
             self?.toggleSidebar()
         }
+        explorerToggle.onPress = { [weak self] in self?.toggleProjectExplorer() }
         titlebar.addSubview(sidebarToggle)
+        titlebar.addSubview(explorerToggle)
+        editorToggle.onPress = { [weak self] in self?.toggleEditor() }
+        titlebar.addSubview(editorToggle)
+        editorToggle.autoresizingMask = [.minXMargin]
         zoom.postsFrameChangedNotifications = true
         NotificationCenter.default.addObserver(
             self,
@@ -822,6 +926,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
             width: side,
             height: side
         )
+        explorerToggle.frame = sidebarToggle.frame.offsetBy(dx: side + 4, dy: 0)
+        editorToggle.frame = NSRect(x: max(explorerToggle.frame.maxX + 8, titlebar.bounds.width - side - 8), y: sidebarToggle.frame.minY, width: side, height: side)
     }
 
     /// Open on first launch. A saved collapse is restored. The frame is AppKit's autosave.
@@ -834,16 +940,21 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         )
         stored.removeObject(forKey: "BoomeTabPlacement")
         stored.set(sidebarCollapsed, forKey: ChromeMemory.collapsedKey)
+        explorerVisible = stored.bool(forKey: ProjectExplorerMemory.visibleKey)
+        projectExplorer.setActive(explorerVisible)
         applySidebarWidth(animated: false)
         applyTerminalChrome()
     }
 
     private func rememberChrome() {
         UserDefaults.standard.set(sidebarCollapsed, forKey: ChromeMemory.collapsedKey)
+        UserDefaults.standard.set(explorerVisible, forKey: ProjectExplorerMemory.visibleKey)
     }
 
     private func syncSidebarToggle() {
         sidebarToggle.note(collapsed: isSidebarCollapsed)
+        explorerToggle.note(collapsed: !explorerVisible)
+        editorToggle.note(collapsed: !editorVisible)
     }
 
     /// Sidebar and title bar use the terminal background, so the window is one surface.
@@ -853,8 +964,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         window?.backgroundColor = background
         window?.appearance = appearance
         separator.layer?.backgroundColor = BoomeChrome.hairline(on: background).cgColor
+        explorerSeparator.layer?.backgroundColor = BoomeChrome.hairline(on: background).cgColor
+        editorSeparator.layer?.backgroundColor = BoomeChrome.hairline(on: background).cgColor
+        fileEditor.use(background: background)
         sidebar.use(background: background)
+        projectExplorer.use(background: background)
         sidebarToggle.use(background: background)
+        explorerToggle.use(background: background)
+        editorToggle.use(background: background)
         window?.titleVisibility = .hidden
         window?.titlebarAppearsTransparent = true
         window?.tabbingMode = .disallowed
@@ -957,6 +1074,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         guard let tab = tabs.first(where: { $0.view.surface === surface }) else { return }
         tab.workingDirectory = path
         reloadSidebar()
+        syncProjectExplorer()
     }
 
     func ghosttyHost(_ host: GhosttyHost, surface: GhosttyHost.Surface, closeProcessAlive alive: Bool) {
@@ -1011,17 +1129,17 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        if allowWindowClose || tabs.isEmpty { return true }
+        if allowWindowClose { return true }
         requestWindowClose(followUp: .closeWindow)
         return false
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
-        focusSelected()
+        if !fileEditor.isFocused && !projectExplorer.isFocused { focusSelected() }
     }
 
     func windowDidResize(_ notification: Notification) {
-        placeSidebarToggle()
+        applySidebarWidth(animated: false)
         sidebar.revealSelection()
     }
 
@@ -1133,24 +1251,48 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
     }
 
     private func performWindowClose(_ followUp: WindowFollowUp) {
-        windowFollowUp = nil
-        allowWindowClose = true
-        switch followUp {
-        case .closeWindow:
-            window?.close()
-        case .quit:
-            NSApp.terminate(nil)
+        fileEditor.prepareToLeave { [weak self] allowed in
+            guard let self else { return }
+            self.windowFollowUp = nil
+            guard allowed else { return }
+            self.allowWindowClose = true
+            switch followUp {
+            case .closeWindow: self.window?.close()
+            case .quit: NSApp.terminate(nil)
+            }
         }
     }
 
     private func applySidebarWidth(animated: Bool) {
+        guard !adjustingLayout else { return }
+        adjustingLayout = true
+        defer { adjustingLayout = false }
+        let width: CGFloat = sidebarCollapsed ? 0 : 200
+        let minimum = WorkspaceLayout.minimumWidth(tabSidebarWidth: width, explorer: explorerVisible, editor: editorVisible)
+        if let window {
+            window.minSize.width = minimum
+            if window.frame.width < minimum {
+                var frame = window.frame
+                frame.size.width = minimum
+                if let visible = window.screen?.visibleFrame { frame.origin.x = min(frame.origin.x, visible.maxX - minimum) }
+                window.setFrame(frame, display: true)
+            }
+        }
         syncSidebarToggle()
         placeSidebarToggle()
-        let width: CGFloat = sidebarCollapsed ? 0 : 200
         let hairline: CGFloat = sidebarCollapsed ? 0 : 1
+        let panels = WorkspaceLayout.widths(windowWidth: window?.contentView?.bounds.width ?? 1100, tabSidebarWidth: width, explorer: explorerVisible, editor: editorVisible)
+        let projectWidth = panels.explorer
+        let projectHairline: CGFloat = explorerVisible ? 1 : 0
+        let editWidth = panels.editor
+        let editHairline: CGFloat = editorVisible ? 1 : 0
         let changes = {
             self.sidebarWidth.constant = width
             self.separatorWidth.constant = hairline
+            self.explorerWidth.constant = projectWidth
+            self.explorerSeparatorWidth.constant = projectHairline
+            self.editorWidth.constant = editWidth
+            self.editorSeparatorWidth.constant = editHairline
         }
         if animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             NSAnimationContext.runAnimationGroup { context in
@@ -1160,6 +1302,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
                 changes()
                 self.sidebarWidth.animator().constant = width
                 self.separatorWidth.animator().constant = hairline
+                self.explorerWidth.animator().constant = projectWidth
+                self.explorerSeparatorWidth.animator().constant = projectHairline
+                self.editorWidth.animator().constant = editWidth
+                self.editorSeparatorWidth.animator().constant = editHairline
             }
         } else {
             changes()
@@ -1170,6 +1316,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         for (offset, tab) in tabs.enumerated() {
             tab.view.showSurface(offset == selected)
         }
+        syncProjectExplorer()
+    }
+
+    private func syncProjectExplorer() {
+        let directory = tabs.indices.contains(selected) ? tabs[selected].workingDirectory : nil
+        projectExplorer.follow(directory: directory)
     }
 
     private func syncWindowTitles() {

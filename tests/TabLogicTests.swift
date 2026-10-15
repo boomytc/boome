@@ -15,6 +15,7 @@ enum TabLogicTests {
         fills()
         pulse()
         shortcuts()
+        ProjectExplorerTests.run { check($0, $1) }
         if failed != 0 {
             print("FAILED \(failed)")
             exit(1)
