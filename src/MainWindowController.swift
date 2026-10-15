@@ -399,6 +399,112 @@ private final class QuietAddButton: NSView {
     }
 }
 
+/// Title-bar control for the sidebar. The glyph stays `sidebar.left`.
+/// The label follows the window's existing collapsed bit.
+private final class SidebarToggleButton: NSView {
+    var onPress: (() -> Void)?
+
+    private var surfaceBackground = BoomeChrome.fallbackBackground
+    private var hovered = false
+    private var tracking: NSTrackingArea?
+
+    override var isFlipped: Bool { true }
+    override var acceptsFirstResponder: Bool { false }
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.cornerRadius = 6
+        layer?.masksToBounds = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+        setAccessibilityRole(.button)
+        setAccessibilityIdentifier("SidebarToggle")
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not used")
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    func use(background: NSColor) {
+        surfaceBackground = background
+        paint(animated: false)
+        needsDisplay = true
+    }
+
+    func note(collapsed: Bool) {
+        let title = collapsed ? "展开侧栏" : "收起侧栏"
+        toolTip = "\(title) (⌥⌘S)"
+        setAccessibilityLabel(title)
+        setAccessibilityHelp(toolTip)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        tracking = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        hovered = true
+        paint(animated: true)
+        needsDisplay = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        hovered = false
+        paint(animated: true)
+        needsDisplay = true
+    }
+
+    /// The title bar does not always deliver mouseUp. One mouseDown is the click.
+    override func mouseDown(with event: NSEvent) {
+        onPress?()
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let color = BoomeChrome.text(selected: hovered, on: surfaceBackground)
+        let side: CGFloat = 15
+        let icon = NSRect(
+            x: ((bounds.width - side) / 2).rounded(),
+            y: ((bounds.height - side) / 2).rounded(),
+            width: side,
+            height: side
+        )
+        Self.symbol(color)?.draw(
+            in: icon,
+            from: .zero,
+            operation: .sourceOver,
+            fraction: 1,
+            respectFlipped: true,
+            hints: nil
+        )
+    }
+
+    private func paint(animated: Bool) {
+        paintFill(layer, color: BoomeChrome.newTabFill(hovered: hovered, on: surfaceBackground), animated: animated)
+    }
+
+    private static func symbol(_ color: NSColor) -> NSImage? {
+        let symbol = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: nil)
+        let size = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+        let palette = NSImage.SymbolConfiguration(paletteColors: [color])
+        return symbol?.withSymbolConfiguration(size.applying(palette))
+    }
+}
+
 final class TabSidebar: NSView {
     enum Axis {
         case vertical
@@ -586,6 +692,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
 
     private let host = GhosttyHost.shared
     private let sidebar = TabSidebar()
+    private let sidebarToggle = SidebarToggleButton(frame: NSRect(x: 0, y: 0, width: 28, height: 28))
     private let terminalHost = NSView()
     private let separator = NSView()
     private var sidebarWidth: NSLayoutConstraint!
@@ -653,6 +760,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         window?.center()
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
+        placeSidebarToggle()
         focusSelected()
     }
 
@@ -679,6 +787,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         }
         sidebarCollapsed.toggle()
         applySidebarWidth(animated: true)
+        focusSelected()
     }
 
     /// The system tab command stays in this window.
@@ -793,6 +902,45 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         sidebar.onClose = { [weak self] index in self?.closeTab(at: index) }
         sidebar.onNew = { [weak self] in self?.newTab() }
         sidebar.onMenu = { [weak self] index, event in self?.showTabMenu(at: index, event: event) }
+        installSidebarToggle()
+    }
+
+    /// Left title-bar control, in the same view as the traffic lights so a
+    /// click reaches it. Collapsing the sidebar does not remove it.
+    private func installSidebarToggle() {
+        guard let window,
+              let zoom = window.standardWindowButton(.zoomButton),
+              let titlebar = zoom.superview else { return }
+        sidebarToggle.onPress = { [weak self] in
+            self?.toggleSidebar()
+        }
+        titlebar.addSubview(sidebarToggle)
+        zoom.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(placeSidebarToggle),
+            name: NSView.frameDidChangeNotification,
+            object: zoom
+        )
+        placeSidebarToggle()
+        syncSidebarToggle()
+    }
+
+    @objc private func placeSidebarToggle() {
+        guard let zoom = window?.standardWindowButton(.zoomButton) else { return }
+        guard let titlebar = sidebarToggle.superview else { return }
+        let z = titlebar.convert(zoom.frame, from: zoom.superview)
+        let side: CGFloat = 28
+        sidebarToggle.frame = NSRect(
+            x: (z.maxX + 8).rounded(),
+            y: (z.midY - side / 2).rounded(),
+            width: side,
+            height: side
+        )
+    }
+
+    private func syncSidebarToggle() {
+        sidebarToggle.note(collapsed: isSidebarCollapsed)
     }
 
     /// Sidebar and title bar use the terminal background, so the window is one surface.
@@ -803,6 +951,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         window?.appearance = appearance
         separator.layer?.backgroundColor = BoomeChrome.hairline(on: background).cgColor
         sidebar.use(background: background)
+        sidebarToggle.use(background: background)
         window?.titleVisibility = .hidden
         window?.titlebarAppearsTransparent = true
         window?.tabbingMode = .disallowed
@@ -962,6 +1111,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         focusSelected()
     }
 
+    func windowDidResize(_ notification: Notification) {
+        placeSidebarToggle()
+    }
+
     func windowWillClose(_ notification: Notification) {
         host.shutdown()
     }
@@ -1088,6 +1241,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
     }
 
     private func applySidebarWidth(animated: Bool) {
+        syncSidebarToggle()
         let horizontal = placement == .horizontal
         let sidebarOpen = !horizontal && !sidebarCollapsed
         let changes = {
