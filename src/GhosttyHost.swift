@@ -2,12 +2,12 @@ import AppKit
 import GhosttyKit
 import UniformTypeIdentifiers
 
-/// The only type that calls `ghostty_*`.
+/// The production boundary for all `ghostty_*` calls.
 ///
 /// Ghostty's C API is the macOS embedding entry used by Ghostty.app. The
 /// header of `src/main_c.zig` says it is not a stable general-purpose
-/// embedding interface. Upgrade the `vendor/ghostty` submodule by changing
-/// this file, not the rest of the shell.
+/// embedding interface. Absorb core API changes into this boundary, not the
+/// rest of the shell. Core sources live in `core/`; see `UPSTREAM.md`.
 final class GhosttyHost: NSObject {
     static let shared = GhosttyHost()
 
@@ -85,7 +85,7 @@ final class GhosttyHost: NSObject {
         precondition(
             UInt32(GHOSTTY_ACTION_CLOSE_TAB.rawValue) == LibraryActionRoute.closeTab
                 && UInt32(GHOSTTY_ACTION_CLOSE_WINDOW.rawValue) == LibraryActionRoute.closeWindow,
-            "close action tags drifted from the pinned Ghostty header"
+            "close action tags drifted from the terminal core header"
         )
         if app != nil { return }
         let code = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)

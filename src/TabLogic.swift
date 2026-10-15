@@ -111,7 +111,7 @@ enum TabNavigation {
 }
 
 /// Which close a library action asks for. The tag is `ghostty_action_tag_e`
-/// from the pinned v1.3.1 header. Close Window is not a tab close: the last
+/// from the owned core's v1.3.1-derived header. Close Window is not a tab close: the last
 /// tab must not be replaced in its place.
 enum LibraryActionRoute {
     enum Close: Equatable {

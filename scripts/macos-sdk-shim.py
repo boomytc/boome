@@ -3,8 +3,8 @@
 
 macOS 27's text-based stubs list arm64e-macos and not arm64-macos.
 Zig 0.15.2 treats those as different targets, so every link fails with
-undefined libSystem symbols. Zig 0.16 matches them; this tag of Ghostty
-rejects any other Zig. The shim copies the installed SDK (APFS clone when
+undefined libSystem symbols. Zig 0.16 matches them; Boome's terminal core
+still requires Zig 0.15.2. The shim copies the installed SDK (APFS clone when
 it can) and adds an arm64-* target next to each arm64e-* target. It does
 not modify the Xcode SDK.
 """

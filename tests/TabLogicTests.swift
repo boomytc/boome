@@ -296,10 +296,10 @@ enum TabLogicTests {
         )
     }
 
-    /// Ordinals of `ghostty_action_tag_e` in the pinned header. The route
+    /// Ordinals of `ghostty_action_tag_e` in the owned core header. The route
     /// function is then called with those values.
     static func ghosttyActionTags() -> [String: UInt32] {
-        let path = "vendor/ghostty/include/ghostty.h"
+        let path = "core/include/ghostty.h"
         guard let text = try? String(contentsOfFile: path, encoding: .utf8),
               let quit = text.range(of: "\n  GHOSTTY_ACTION_QUIT,"),
               let end = text.range(of: "} ghostty_action_tag_e;", range: quit.lowerBound..<text.endIndex) else {

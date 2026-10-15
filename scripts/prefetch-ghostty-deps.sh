@@ -17,7 +17,7 @@ fi
 
 # Top-level and pkg/*/build.zig.zon. Zig 0.15.2 fetches these while loading
 # the build graph, including lazy packages the macOS library still touches.
-python3 - "$root/vendor/ghostty" <<'PY' | while IFS=$'\t' read -r url hash; do
+python3 - "$root/core" <<'PY' | while IFS=$'\t' read -r url hash; do
 import re, sys
 from pathlib import Path
 root = Path(sys.argv[1])

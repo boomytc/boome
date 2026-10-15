@@ -1,7 +1,10 @@
 .DS_Store
-build/
-DerivedData/
+/build/
+/DerivedData/
+__pycache__/
 
-# Ghostty's own build outputs stay inside the submodule and are not
-# committed: zig-out/, .zig-cache/, macos/GhosttyKit.xcframework/.
-# The SDK shim and downloaded Zig live under ~/.cache/boome and ~/.local/zig.
+# Direct Zig invocations may use their default output paths.
+core/.zig-cache/
+core/zig-out/
+
+# Toolchains, the SDK shim, and downloaded package archives stay outside Git.

@@ -1,0 +1,16 @@
+# Animation rows are fixed-width data; their trailing spaces are meaningful.
+src/build/framegen/frames/*.txt -text whitespace=-blank-at-eol,-blank-at-eof
+
+# Preserve fixture bytes and original source attribution.
+src/font/res/** -text linguist-vendored
+src/terminal/res/** -text linguist-vendored
+src/terminal/kitty/testdata/** -text linguist-vendored
+pkg/wuffs/test/data/** -text linguist-vendored
+pkg/breakpad/vendor/** linguist-vendored
+# Preserve the upstream generated table's mixed indentation, not a code style change.
+pkg/simdutf/vendor/** linguist-vendored whitespace=-space-before-tab
+pkg/glslang/test/** -text whitespace=-space-before-tab
+pkg/libintl/config.h linguist-generated=true
+pkg/libintl/libintl.h linguist-generated=true
+src/font/nerd_font_attributes.zig linguist-generated=true
+src/font/nerd_font_codepoint_tables.py linguist-generated=true

@@ -1,30 +1,28 @@
 # Boome
 
-macOS 终端。窗口左侧是 Boome 自己画的垂直标签栏。每个标签是一个活着的 [Ghostty](https://github.com/ghostty-org/ghostty) surface：Metal 画格子，Core Text 画字。libghostty 以静态库形式嵌在 `GhosttyKit.xcframework` 里。不编 Ghostty.app，也不把 submodule 跟到 `main`。
+macOS 终端。窗口左侧是 Boome 自己画的垂直标签栏。每个标签是一个活着的终端 surface：Metal 画格子，Core Text 画字。核心源码源自 [Ghostty](https://github.com/ghostty-org/ghostty)，现在由 Boome 在 `core/` 中直接维护，编成静态库链接到应用，不依赖外部 Ghostty 工作树。
 
-应用名 Boome，bundle id `com.boom.boome`。不用 Ghostty 的名字、bundle id 或图标。libghostty 是 MIT，声明在 [THIRD_PARTY_NOTICES/ghostty-LICENSE](THIRD_PARTY_NOTICES/ghostty-LICENSE)，源码在 `vendor/ghostty`。
+应用名 Boome，bundle id `com.boom.boome`。不用 Ghostty 的名字、bundle id 或图标。原始 MIT 声明保留在 [THIRD_PARTY_NOTICES/ghostty-LICENSE](THIRD_PARTY_NOTICES/ghostty-LICENSE) 和 `core/LICENSE`；其他依赖、字体和素材的许可证维持原样。
 
-## 钉住的版本
+## 源码与上游
 
 | | |
 | --- | --- |
-| Ghostty tag | `v1.3.1` |
-| commit | `332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28` |
-| `minimum_zig_version` | `0.15.2` |
+| 核心源码来源 | Ghostty `v1.3.1`，`332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28` |
+| Boome 核心版本 | `1.3.1-boome.1` |
+| 上游已处理终点 | `a2e440396403385680008e456a741a7776091412` |
+| Zig | `0.15.2` |
 
-`vendor/ghostty` 是 git submodule，停在这个 tag 的 commit 上，不跟 `main`，也不跟浮动的 `tip`。吸收进来的上游修复在 `vendor/ghostty-patches`。`./scripts/build.sh` 只在重编库时按文件名顺序打进这棵树，成功后按补丁反向撤掉，submodule 仍是上面的 commit。补丁失败或 Zig 失败时树留在打过补丁的状态，行号和日志对齐。
+后续像 AmazMe 一样，参照本地同级 Ghostty 的明确提交区间，将适用行为直接吸收入现有源码。已处理不等于整棵树已同步；当前范围、跳过原因和操作方法见 [UPSTREAM.md](UPSTREAM.md)。不再维护 submodule 或构建时补丁／撤补丁流程，也不把本机 Ghostty 的绝对路径作为构建依赖。
 
 ## 从空目录到打开 App
 
-需要 Xcode（这台机器是 Xcode 27）和网络。Zig 必须是 **0.15.2**。版本不对就停，不要换别的 Zig 硬编。
+需要 Xcode（这台机器是 Xcode 27）和首次获取依赖时的网络。Zig 必须是 **0.15.2**，版本不对就停。
 
 ```bash
-git clone --recurse-submodules https://github.com/boomytc/boome.git
+git clone https://github.com/boomytc/boome.git
 cd boome
-git -C vendor/ghostty fetch --depth 1 origin tag v1.3.1
-git -C vendor/ghostty checkout v1.3.1
 
-# 只装这一版。校验打印出来的版本是 0.15.2。
 mkdir -p "$HOME/.local/zig"
 curl -fL -o /tmp/zig-aarch64-macos-0.15.2.tar.xz \
   https://ziglang.org/download/0.15.2/zig-aarch64-macos-0.15.2.tar.xz
@@ -35,42 +33,45 @@ tar -xJf /tmp/zig-aarch64-macos-0.15.2.tar.xz -C "$HOME/.local/zig"
 open build/Boome.app
 ```
 
-已经有检出时，重复执行 `./scripts/build.sh`。它在 `GhosttyKit.xcframework` 还在的时候跳过 Zig，只重编 Swift。要重编库：`./scripts/build.sh --rebuild-lib`。
+重复执行 `./scripts/build.sh` 时，脚本按核心源码、构建辅助脚本、Zig 和 SDK 标识生成内容指纹。输入未变才复用核心库；修改、增加或删除核心文件会自动重编，不再仅检查产物目录是否存在。`./scripts/build.sh --rebuild-lib` 强制重编。
 
-### 实际的 Zig 命令
+产物是 `build/core/lib/libghostty.a`、`build/core/include/` 和 `build/core/share/`。Swift 仍用 GhosttyKit 模块名，但不再需要 xcframework。核心只构建 macOS arm64 嵌入库及资源，不构建 Ghostty.app、GTK 或额外的 libghostty-vt。
 
-`v1.3.1` 的 `zig build --help` 里还有 `-Demit-xcframework` 和 `-Demit-macos-app`。没有 `-Demit-lib-vt`。`libghostty-vt` 被接在默认 install step 上，这个 tag 没有开关把它拿掉，所以下面这条命令仍会编出 `libghostty-vt`，Boome 不链接它。
+### 核心定向测试
 
-`-Dxcframework-target` 的取值是 `native` 或 `universal`，默认 `universal`（macOS 两套架构，外加 iOS 和 iOS 模拟器）。Boome 只要这台 Mac 上的嵌入库，所以用 `native`。`emit-macos-app` 在打开 xcframework 时默认跟着变成 true，必须显式写成 false，否则会同时编出 Ghostty.app。
+先准备这台 Mac 的 SDK 垫片，然后运行 Zig 测试；同一时间只跑一个重型 Zig 构建：
 
 ```bash
-export PATH="$PWD/scripts/xcrun-shim:$HOME/.local/zig/zig-aarch64-macos-0.15.2:$PATH"
-cd vendor/ghostty
-zig build \
-  -Doptimize=ReleaseFast \
-  -Demit-xcframework=true \
-  -Demit-macos-app=false \
-  -Dxcframework-target=native \
-  -j4
+export ZIG="$HOME/.local/zig/zig-aarch64-macos-0.15.2/zig"
+python3 scripts/macos-sdk-shim.py
+export PATH="$PWD/scripts/xcrun-shim:$PATH"
+cd core
+"$ZIG" build test \
+  -Dtest-filter=hyperlink -Dtest-filter=resize \
+  --cache-dir ../build/zig-cache -j4 --summary all
 ```
 
-产物是 `vendor/ghostty/macos/GhosttyKit.xcframework`。资源在 `vendor/ghostty/zig-out/share/`（`ghostty/` 里的 shell integration 和主题，旁边的 `terminfo/78/xterm-ghostty`）。这些目录、`.zig-cache`、xcframework、`build/` 都不进 git。
+Swift 回归与构建支持回归从根目录执行：
 
-### 这台 Mac 上 Zig 0.15.2 为什么还要一层垫片
+```bash
+./scripts/test-tab-logic.sh
+python3 -m unittest discover -s tests -p test_core_build.py
+./scripts/test-core-runtime.sh
+```
 
-Xcode 27 的 macOS 27 SDK 里，系统 `.tbd` 只列 `arm64e-macos`，不列 `arm64-macos`。Zig 0.15.2 把两者当成不同目标，链接自己的 build runner 时就会缺 `_abort` 这一类 libSystem 符号。修这个的链接器改动在 Zig 0.16，而 Ghostty `v1.3.1` 拒绝别的 Zig。
+运行时检查需要至少一块唤醒的显示器，使用独立应用标识、禁用默认配置和临时 HOME，直接调用真实 libghostty／AppKit 的会话迁移、编辑和退出确认接口，不代表物理鼠标拖拽或跨屏验收。
 
-`scripts/macos-sdk-shim.py` 把当前 SDK 克隆到 `~/.cache/boome/MacOSX-arm64-shim.sdk`（不改 Xcode 自带的那份），并在每个 `arm64e-*` 旁边补上对应的 `arm64-*`。同一份垫片里的 `math.h` 还会补上 `INFINITY`：macOS 27 的头在编译器声明支持 modules 时不定义这个宏，Zig 0.15.2 自带的 libc++ 又要用它，结果是 `use of undeclared identifier 'INFINITY'`。`scripts/xcrun-shim/xcrun` 只拦 Zig 用来问 SDK 路径的那一次 `xcrun --sdk macosx --show-sdk-path`，其它 `xcrun` 仍走 `/usr/bin/xcrun`。Swift 链接用 Apple 的链接器和真正的 SDK。
+### 这台 Mac 的工具链适配
 
-编译 `src/renderer/shaders/shaders.metal` 需要 Metal 工具链。`xcrun -sdk macosx metal` 若报 missing Metal Toolchain，先执行 `xcodebuild -downloadComponent MetalToolchain`，再重跑构建。
+Xcode 27 的 macOS 27 SDK 中部分系统 `.tbd` 只列 `arm64e-macos`。Zig 0.15.2 无法直接匹配 `arm64-macos`，因此仍使用 `scripts/macos-sdk-shim.py` 在 `~/.cache/boome` 中生成 SDK 副本，不修改 Xcode。垫片也补齐 libc++ 所需的 `INFINITY`。`scripts/xcrun-shim/xcrun` 仅替换 Zig 获取 SDK 路径的请求；Swift 链接使用 Apple 的真实 SDK。
 
-Zig 0.15.2 的 HTTP 客户端访问 `deps.files.ghostty.org` 会拿到 400，访问一部分 GitHub 归档会中途断连。`scripts/prefetch-ghostty-deps.sh` 用 curl 把 `build.zig.zon` 里的包下下来，再 `zig fetch` 进全局缓存。哈希对不上就停。
+Metal 编译若报告 missing Metal Toolchain，先执行 `xcodebuild -downloadComponent MetalToolchain`。依赖下载仍由 `scripts/prefetch-ghostty-deps.sh` 使用 curl 获取、交由 `zig fetch` 校验 `build.zig.zon` 中的哈希，避免旧 Zig HTTP 客户端的问题。
 
-Xcode 27 的 `libtool` 会丢掉 Zig 0.15.2 产出的、不是 8 字节对齐的对象文件，打出来的 `libghostty-fat.a` 里没有 `ghostty_surface_new`。`scripts/repack-libghostty.sh` 用 `ar` 把同一批静态库重新合上，再盖回 xcframework。库里已经有这个符号时脚本直接退出。链接还要带上 GameController：静态库里的 imgui macOS 后端引用了 `GCController`，`-force_load` 会把它拉进来。
+静态归档现在直接使用 Zig 的 LLVM ar，合并当前构建图给出的确切输入，保留同名对象，避开 Xcode libtool 丢弃未按 8 字节对齐的 Mach-O 对象的问题。不再扫描缓存挑选“最新”归档或在链接前补救重打包。链接继续保留 GameController 和 `-force_load`。
 
 ## 壳在做什么
 
-Swift + AppKit。所有 `ghostty_*` 调用都在 `src/GhosttyHost.swift`。升级 submodule 时只改这一处。
+Swift + AppKit。生产代码的 `ghostty_*` 调用都在 `src/GhosttyHost.swift`。吸收核心 C API 改动时在这一边界适配，不把调用散到界面层。
 
 - 默认一个窗口，左侧标签栏宽 200。点一行就切换。悬停有一层很浅的底。选中行是同一背景上更亮的一层，字更重，不用另一块颜色。
 - 标签只在左侧栏。拖到行的上、下边缘调整顺序，拖到行中央创建或加入分组；组标题可以折叠、展开，整个组也能拖动排序。右键可以新建分组、移出成员、重命名或解散分组，以及关闭标签、关闭其他、关闭右侧、关闭整组。分组边界用于将成员拖出该组。
@@ -133,3 +134,14 @@ Swift + AppKit。所有 `ghostty_*` 调用都在 `src/GhosttyHost.swift`。升�
 2026-10-15，接管 Pi 留下的排序、分组与多窗口实现后，补修单成员组边界脱组，以及多窗口退出期间已批准窗口仍可继续输入的问题，并删除临时拖拽追踪输出。`./scripts/test-tab-logic.sh` 的 213 项检查、完整构建和空白检查通过。另用真实 libghostty 与 AppKit 控制器执行 30 项运行时集成检查，覆盖连续迁移、同一 surface／shell PID 与局部变量保持、编辑器焦点和未保存内容保留、最后一条会话移走后保留编辑器窗口、退出取消后恢复输入与焦点、再次退出时保存另一窗口的文档，全部通过。
 
 本轮助手实窗复测了同窗口鼠标拖拽排序、右键跨窗口迁移以及来源编辑器缓冲保留。连续跨窗口鼠标拖拽的助手自动化反复中断，随后由用户在真实窗口中实测确认没有问题，该项验收据此通过。上述 30 项运行时集成检查直接调用迁移和确认 API；鼠标连续跨窗口拖拽的通过依据为用户实测，未计作助手自动化通过。
+
+
+### 2026-10-15：核心源码自主维护迁移
+
+`core/` 已纳入实际使用的终端源码、依赖构建定义、资源和测试夹具。此前三处补丁对应的生产文件与打补丁后的旧基线逐字节一致；其余迁移改动集中在构建入口、版本来源和移除不使用的应用分支。原 submodule、补丁目录、xcframework 及按缓存扫描重打包的流程已删除。上游参照改为按 `UPSTREAM.md` 选择性吸收，不参与 Boome 构建。
+
+本轮验证：257 项 hyperlink／resize 定向 Zig 检查、213 项 Swift 检查、20 项构建支持检查、32 项真实 libghostty／AppKit 集成检查通过。运行时确认加载 `1.3.1-boome.1` 的 ReleaseFast 核心，保留 surface、shell PID、局部变量、源编辑缓冲和退出取消后的输入／焦点。原库的 93 个 `ghostty_*` 导出符号集合保持一致。源码变化触发重编，随后不变构建复用核心库。
+
+提交前修正根 `build/` 忽略规则会漏掉 `core/src/build/` 的问题，改为 `/build/` 并补仓库布局回归；核验 940 个核心源文件与资源的暂存字节和执行权限完整。另从暂存区导出路径含空格、没有 `.git` 或 `vendor`、空 `build` 的源码副本并完成构建；复用了已校验的全局依赖缓存，不将此描述为完全无缓存的联网引导。运行时初次检查遇到两块显示器均休眠、CoreVideo 无活动显示器的环境失败；唤醒后完整重测通过，测试入口已补活动显示器前置检查，未更改显示器分辨率或布局。
+
+本轮运行时检查直接调用迁移与确认 API，不计作物理鼠标拖拽、fzf 点击、拖窗或跨屏实测；这些项目未在本轮重新验收。
