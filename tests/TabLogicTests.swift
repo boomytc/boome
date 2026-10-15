@@ -221,21 +221,20 @@ enum TabLogicTests {
     }
 
     static func chromeMemory() {
-        check(
-            "a missing layout is vertical and open",
-            ChromeMemory.record(placement: nil, collapsed: nil) == ChromeMemory.Record(horizontal: false, sidebarCollapsed: false)
-        )
-        check(
-            "an unknown placement stays vertical",
-            ChromeMemory.record(placement: "sideways", collapsed: true) == ChromeMemory.Record(horizontal: false, sidebarCollapsed: true)
-        )
-        check(
-            "horizontal and a collapsed sidebar are stored separately",
-            ChromeMemory.record(placement: "horizontal", collapsed: nil) == ChromeMemory.Record(horizontal: true, sidebarCollapsed: false)
-                && ChromeMemory.record(placement: "vertical", collapsed: true) == ChromeMemory.Record(horizontal: false, sidebarCollapsed: true)
-        )
         check("a missing window frame is not a restore", !ChromeMemory.hasSavedFrame(nil) && !ChromeMemory.hasSavedFrame("  "))
         check("a saved window frame can be restored", ChromeMemory.hasSavedFrame("0 0 800 600 0 0 1440 900 "))
+        check(
+            "a saved horizontal layout opens the vertical sidebar",
+            !ChromeMemory.sidebarCollapsed(stored: true, obsoletePlacement: "horizontal")
+                && !ChromeMemory.sidebarCollapsed(stored: nil, obsoletePlacement: "horizontal")
+        )
+        check(
+            "a saved collapse stays collapsed once there is no placement",
+            ChromeMemory.sidebarCollapsed(stored: true, obsoletePlacement: nil)
+                && ChromeMemory.sidebarCollapsed(stored: true, obsoletePlacement: "vertical")
+                && !ChromeMemory.sidebarCollapsed(stored: false, obsoletePlacement: nil)
+                && !ChromeMemory.sidebarCollapsed(stored: nil, obsoletePlacement: nil)
+        )
     }
 
     static func navigation() {
@@ -449,7 +448,6 @@ enum TabLogicTests {
             ("command t", chord(command: true, key: "t")),
             ("command w", chord(command: true, key: "w")),
             ("command q", chord(command: true, key: "q")),
-            ("option command t", chord(command: true, option: true, key: "t")),
             ("option command s", chord(command: true, option: true, key: "s")),
             ("shift command left bracket", chord(command: true, shift: true, key: "[")),
             ("shift command right bracket", chord(command: true, shift: true, key: "]")),
@@ -462,6 +460,10 @@ enum TabLogicTests {
         check(
             "an ordinary key is not owned by the app",
             !AppShortcut.owns(chord(key: "a", keyCode: 0))
+        )
+        check(
+            "option command t is not an app shortcut",
+            !AppShortcut.owns(chord(command: true, option: true, key: "t"))
         )
     }
 }

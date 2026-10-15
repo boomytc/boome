@@ -255,9 +255,8 @@ struct ClosePolicy {
 }
 
 /// Layout remembered across launches. The window frame is saved by AppKit.
-/// A missing or unknown value is the first-launch layout: vertical, open.
+/// Tabs stay in the left sidebar. A missing collapsed value leaves it open.
 enum ChromeMemory {
-    static let placementKey = "BoomeTabPlacement"
     static let collapsedKey = "BoomeSidebarCollapsed"
     static let frameAutosaveName = "BoomeMain"
     static var frameDefaultsKey: String { "NSWindow Frame \(frameAutosaveName)" }
@@ -269,13 +268,11 @@ enum ChromeMemory {
         return !saved.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    struct Record: Equatable {
-        var horizontal: Bool
-        var sidebarCollapsed: Bool
-    }
-
-    static func record(placement: String?, collapsed: Bool?) -> Record {
-        Record(horizontal: placement == "horizontal", sidebarCollapsed: collapsed ?? false)
+    /// Horizontal tabs used to stay on screen even when the collapse bit was
+    /// set. Dropping that layout opens the sidebar, so the same list remains visible.
+    static func sidebarCollapsed(stored: Bool?, obsoletePlacement: String?) -> Bool {
+        if obsoletePlacement == "horizontal" { return false }
+        return stored ?? false
     }
 }
 
@@ -310,7 +307,7 @@ enum AppShortcut {
         let commandOption = chord.command && chord.option && !chord.shift && !chord.control
         let commandShift = chord.command && !chord.option && chord.shift && !chord.control
         if commandOnly && (key == "t" || key == "w" || key == "q") { return true }
-        if commandOption && (key == "t" || key == "s") { return true }
+        if commandOption && key == "s" { return true }
         if commandShift && (key == "[" || key == "]") { return true }
         if chord.control && chord.keyCode == 48 { return true }
         return false

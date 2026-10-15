@@ -29,7 +29,7 @@ enum BoomeChrome {
         isDark(background) ? NSColor(white: 1, alpha: 0.14) : NSColor(white: 0, alpha: 0.08)
     }
 
-    /// One fill scale for every row, in either axis. Rest is clear.
+    /// One fill scale for every sidebar row. Rest is clear.
     static func rowFill(_ role: RowRole, on background: NSColor) -> NSColor {
         switch role {
         case .rest:
