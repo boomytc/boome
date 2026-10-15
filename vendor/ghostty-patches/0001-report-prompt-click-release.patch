@@ -1,0 +1,17 @@
+diff --git a/src/Surface.zig b/src/Surface.zig
+index 4d66622..dc9ee23 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -4283,6 +4283,12 @@ fn maybePromptClick(self: *Surface) !bool {
+     // prompt clicks because we can't move if we're not in a prompt!
+     if (!t.cursorIsAtPrompt()) return false;
+ 
++    // Mouse reporting zeroes left_click_count when it delivers the press.
++    // The matching release has to reach the program too. A prompt click
++    // would replace it with a cursor move or a synthetic press.
++    // Shift+click that is not captured still records a count, so it can move.
++    if (self.mouse.left_click_count == 0) return false;
++
+     // If we have a selection currently, then releasing the mouse
+     // completes the selection and we don't do prompt moving. I don't
+     // love this logic, I think it should be generalized to "if the

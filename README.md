@@ -1,6 +1,6 @@
 # Boome
 
-macOS 终端。窗口左侧是 Boome 自己画的垂直标签栏。每个标签是一个活着的 [Ghostty](https://github.com/ghostty-org/ghostty) surface：Metal 画格子，Core Text 画字。libghostty 以静态库形式嵌在 `GhosttyKit.xcframework` 里。这里不改 Ghostty 上游，也不编 Ghostty.app。
+macOS 终端。窗口左侧是 Boome 自己画的垂直标签栏。每个标签是一个活着的 [Ghostty](https://github.com/ghostty-org/ghostty) surface：Metal 画格子，Core Text 画字。libghostty 以静态库形式嵌在 `GhosttyKit.xcframework` 里。不编 Ghostty.app，也不把 submodule 跟到 `main`。
 
 应用名 Boome，bundle id `com.boom.boome`。不用 Ghostty 的名字、bundle id 或图标。libghostty 是 MIT，声明在 [THIRD_PARTY_NOTICES/ghostty-LICENSE](THIRD_PARTY_NOTICES/ghostty-LICENSE)，源码在 `vendor/ghostty`。
 
@@ -12,7 +12,7 @@ macOS 终端。窗口左侧是 Boome 自己画的垂直标签栏。每个标签�
 | commit | `332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28` |
 | `minimum_zig_version` | `0.15.2` |
 
-`vendor/ghostty` 是 git submodule，停在这个 tag 的 commit 上，不跟 `main`，也不跟浮动的 `tip`。
+`vendor/ghostty` 是 git submodule，停在这个 tag 的 commit 上，不跟 `main`，也不跟浮动的 `tip`。吸收进来的上游修复在 `vendor/ghostty-patches`。`./scripts/build.sh` 只在重编库时按文件名顺序打进这棵树，成功后按补丁反向撤掉，submodule 仍是上面的 commit。补丁失败或 Zig 失败时树留在打过补丁的状态，行号和日志对齐。
 
 ## 从空目录到打开 App
 

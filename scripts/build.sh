@@ -38,8 +38,38 @@ chmod +x "$root/scripts/xcrun-shim/xcrun" "$root/scripts/prefetch-ghostty-deps.s
 export PATH="$root/scripts/xcrun-shim:$PATH"
 hash -r
 
+# The submodule stays at the pinned commit. These patches are the
+# absorbed upstream fixes. Apply them only for the Zig compile, then
+# reverse them so status does not show a dirty submodule. Reversing
+# touches only hunks the patch owns.
+revert_ghostty_patches() {
+  local ghostty="$1"
+  local patch_dir="$2"
+  local -a patches
+  patches=("$patch_dir"/*.patch(N))
+  (( ${#patches} )) || return 0
+  local i
+  for ((i=${#patches}; i>=1; i--)); do
+    if git -C "$ghostty" apply --reverse --check "${patches[i]}" 2>/dev/null; then
+      git -C "$ghostty" apply --reverse "${patches[i]}"
+    fi
+  done
+}
+
+apply_ghostty_patches() {
+  local ghostty="$1"
+  local patch_dir="$2"
+  revert_ghostty_patches "$ghostty" "$patch_dir"
+  local patch
+  for patch in "$patch_dir"/*.patch(N); do
+    echo "Applying Ghostty patch ${patch:t}"
+    git -C "$ghostty" apply --whitespace=nowarn "$patch"
+  done
+}
+
 xc="$root/vendor/ghostty/macos/GhosttyKit.xcframework"
 if [[ "$rebuild_lib" == 1 || ! -d "$xc" ]]; then
+  apply_ghostty_patches "$root/vendor/ghostty" "$root/vendor/ghostty-patches"
   ZIG="$zig" "$root/scripts/prefetch-ghostty-deps.sh"
   log="$root/build/zig-build.log"
   mkdir -p "$root/build"
@@ -62,6 +92,7 @@ if [[ "$rebuild_lib" == 1 || ! -d "$xc" ]]; then
     zig_status=$?
     set -e
     if [[ $zig_status -eq 0 ]]; then
+      revert_ghostty_patches "$root/vendor/ghostty" "$root/vendor/ghostty-patches"
       break
     fi
     urls="$(grep -oE 'https://[^" ]+' "$log" | sort -u || true)"
