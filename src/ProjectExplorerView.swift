@@ -119,10 +119,13 @@ final class ProjectExplorerView: NSView, NSOutlineViewDataSource, NSOutlineViewD
         outline.addTableColumn(column)
         outline.outlineTableColumn = column
         outline.headerView = nil
+        // Automatic style insets the first row, which left an empty band under the header.
+        outline.style = .plain
         outline.rowHeight = 26
         outline.indentationPerLevel = 14
         outline.intercellSpacing = NSSize(width: 0, height: 0)
         outline.usesAutomaticRowHeights = false
+        outline.usesAlternatingRowBackgroundColors = false
         outline.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
         outline.selectionHighlightStyle = .regular
         outline.focusRingType = .none
@@ -139,6 +142,8 @@ final class ProjectExplorerView: NSView, NSOutlineViewDataSource, NSOutlineViewD
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = false
         scroll.autohidesScrollers = true
+        scroll.automaticallyAdjustsContentInsets = false
+        scroll.contentInsets = NSEdgeInsets()
         scroll.borderType = .noBorder
         use(background: background)
         updateFollowButton()
@@ -152,12 +157,14 @@ final class ProjectExplorerView: NSView, NSOutlineViewDataSource, NSOutlineViewD
         // Keep the tree's controls usable while its outer width animates to zero.
         let width = max(180, bounds.width)
         content.frame = NSRect(x: 0, y: 0, width: width, height: bounds.height)
-        title.frame = NSRect(x: 12, y: 12, width: max(0, width - 94), height: 18)
-        options.frame = NSRect(x: width - 78, y: 8, width: 24, height: 26)
-        refresh.frame = NSRect(x: width - 54, y: 8, width: 24, height: 26)
-        close.frame = NSRect(x: width - 30, y: 8, width: 24, height: 26)
-        scroll.frame = NSRect(x: 0, y: 42, width: width, height: max(0, bounds.height - 72))
-        follow.frame = NSRect(x: 12, y: max(42, bounds.height - 27), width: width - 24, height: 22)
+        let header: CGFloat = 32
+        let footer: CGFloat = 30
+        title.frame = NSRect(x: 12, y: 7, width: max(0, width - 94), height: 18)
+        options.frame = NSRect(x: width - 78, y: 3, width: 24, height: 26)
+        refresh.frame = NSRect(x: width - 54, y: 3, width: 24, height: 26)
+        close.frame = NSRect(x: width - 30, y: 3, width: 24, height: 26)
+        scroll.frame = NSRect(x: 0, y: header, width: width, height: max(0, bounds.height - header - footer))
+        follow.frame = NSRect(x: 12, y: max(header, bounds.height - 27), width: width - 24, height: 22)
         outline.tableColumns.first?.width = max(0, scroll.contentSize.width)
     }
 
