@@ -81,7 +81,7 @@ Swift + AppKit。所有 `ghostty_*` 调用都在 `src/GhosttyHost.swift`。升�
 - Cmd+Shift+[、Cmd+Shift+] 在相邻标签间切换。Ctrl+Tab 下一个，Ctrl+Shift+Tab 上一个。
 - 切标签只显示和隐藏 surface，不销毁，也不停里面的 shell。键盘、鼠标、滚动、选区、剪贴板交给当前可见的 surface。
 - 每个标签只有一个 surface。没有分屏。
-- 字体、字号、主题色不另写配置。`ghostty_config_load_default_files` 读 `~/.config/ghostty/config`（以及库自己还会读的那些默认路径）。
+- 字体、字号、主题色不另写配置。`ghostty_config_load_default_files` 读 `~/.config/ghostty/config`（以及库自己还会读的那些默认路径）。把窗口拖到另一块显示器时，窗口和字体的逻辑尺寸不变。渲染缓冲按那块屏幕的 1× 或 2× 重配，垂直同步改跟那块屏幕的刷新率。倍率相同也会更新显示器，不靠重新布局来触发。
 - 资源按 Ghostty macOS 应用的摆法放进 bundle：`Contents/Resources/ghostty` 和 `Contents/Resources/terminfo`。库靠 `terminfo/78/xterm-ghostty` 找到资源目录，再把 `TERMINFO` 指到旁边的 terminfo，shell integration 从 `ghostty/shell-integration` 注入。`share/` 下其余文件（补全、man、主题）一并复制。缺 terminfo 哨兵或缺 shell integration 目录时，构建直接失败，不悄悄跳过。
 
 新标签的工作目录来自 `ghostty_surface_inherited_config(..., GHOSTTY_SURFACE_CONTEXT_TAB)` 的 `working_directory`。那是库从当前 surface 记下的目录（shell integration 的 OSC 7），并且还要 Ghostty 配置里的 `tab-inherit-working-directory` 开着（默认开着）。库给不出路径时用家目录。Boome 不解析 shell 提示符。

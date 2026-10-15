@@ -216,6 +216,20 @@ final class GhosttyHost: NSObject {
         ghostty_surface_set_occlusion(surface.raw, visible)
     }
 
+    /// The window moved onto another display. A move between two 2× screens
+    /// does not change the backing scale and does not relayout, so those
+    /// callbacks never run; the display link still has to follow the new
+    /// refresh rate. The pixel size is applied again on the next turn, when
+    /// a 1×/2× move has caught up with the target screen.
+    func noteScreenChange(_ surface: Surface) {
+        guard surfaces[ObjectIdentifier(surface.view)] != nil else { return }
+        syncGeometry(surface)
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.surfaces[ObjectIdentifier(surface.view)] != nil else { return }
+            self.syncGeometry(surface)
+        }
+    }
+
     func syncGeometry(_ surface: Surface) {
         let view = surface.view
         guard let window = view.window ?? view.superview?.window else {
@@ -230,28 +244,46 @@ final class GhosttyHost: NSObject {
             )
             return
         }
-        if let screen = window.screen,
-           let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber {
-            ghostty_surface_set_display_id(surface.raw, number.uint32Value)
-        }
+        applyDisplayID(surface, window: window)
         let backing = view.convertToBacking(view.bounds)
         let width = view.bounds.width
         let height = view.bounds.height
         guard width >= 1, height >= 1, backing.width >= 1, backing.height >= 1 else { return }
+        // `convertToBacking` can still describe the screen the window just
+        // left. The screen that owns the window is the scale to render at.
+        // Point size of the view is left alone; only the pixel buffer changes.
+        let target = window.screen?.backingScaleFactor ?? window.backingScaleFactor
+        let inferredX = backing.width / width
+        let inferredY = backing.height / height
+        let stale = abs(inferredX - target) > 0.01 || abs(inferredY - target) > 0.01
+        let scaleX = stale ? target : inferredX
+        let scaleY = stale ? target : inferredY
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        view.layer?.contentsScale = window.backingScaleFactor
+        view.layer?.contentsScale = stale ? target : window.backingScaleFactor
         CATransaction.commit()
-        ghostty_surface_set_content_scale(
-            surface.raw,
-            backing.width / width,
-            backing.height / height
-        )
-        ghostty_surface_set_size(
-            surface.raw,
-            UInt32(backing.width.rounded()),
-            UInt32(backing.height.rounded())
-        )
+        ghostty_surface_set_content_scale(surface.raw, scaleX, scaleY)
+        if stale {
+            // Truncate the same way the renderer checks `bounds * contentsScale`.
+            ghostty_surface_set_size(
+                surface.raw,
+                UInt32(width * target),
+                UInt32(height * target)
+            )
+        } else {
+            ghostty_surface_set_size(
+                surface.raw,
+                UInt32(backing.width.rounded()),
+                UInt32(backing.height.rounded())
+            )
+        }
+    }
+
+    private func applyDisplayID(_ surface: Surface, window: NSWindow) {
+        guard let screen = window.screen,
+              let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
+        else { return }
+        ghostty_surface_set_display_id(surface.raw, number.uint32Value)
     }
 
     /// Resolved `background` from the config libghostty already loaded.

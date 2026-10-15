@@ -11,6 +11,7 @@ final class TerminalSurfaceView: NSView, NSTextInputClient {
     private var cursorStyle: GhosttyHost.CursorStyle = .text
     private var cursorHidden = false
     private var tracking: NSTrackingArea?
+    private var screenObserver: NSObjectProtocol?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -56,8 +57,15 @@ final class TerminalSurfaceView: NSView, NSTextInputClient {
         }
     }
 
+    deinit {
+        if let screenObserver {
+            NotificationCenter.default.removeObserver(screenObserver)
+        }
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        trackScreen()
         host.syncGeometry(surface)
         if window != nil, !isHidden {
             host.setSurfaceVisible(surface, visible: true)
@@ -69,9 +77,32 @@ final class TerminalSurfaceView: NSView, NSTextInputClient {
         host.syncGeometry(surface)
     }
 
+    /// Scale changes on the current display. A move onto another display
+    /// with the same scale does not come through here.
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         host.syncGeometry(surface)
+    }
+
+    private func trackScreen() {
+        if let screenObserver {
+            NotificationCenter.default.removeObserver(screenObserver)
+            self.screenObserver = nil
+        }
+        guard let window else { return }
+        screenObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeScreenNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] notification in
+            self?.handleScreenChange(notification)
+        }
+    }
+
+    private func handleScreenChange(_ notification: Notification) {
+        guard let surface else { return }
+        guard let window, notification.object as? NSWindow === window else { return }
+        host.noteScreenChange(surface)
     }
 
     override func updateTrackingAreas() {
