@@ -1,5 +1,40 @@
 import AppKit
 
+/// A window that has approved application termination must not accept new work
+/// while another window is still showing its save/close confirmation.
+private final class SessionWindow: NSWindow {
+    var isInputLocked = false
+
+    override func sendEvent(_ event: NSEvent) {
+        if isInputLocked {
+            switch event.type {
+            case .keyDown, .keyUp, .flagsChanged,
+                 .leftMouseDown, .leftMouseUp, .leftMouseDragged,
+                 .rightMouseDown, .rightMouseUp, .rightMouseDragged,
+                 .otherMouseDown, .otherMouseUp, .otherMouseDragged,
+                 .scrollWheel, .tabletPoint, .tabletProximity,
+                 .gesture, .magnify, .swipe, .rotate, .beginGesture, .endGesture, .pressure:
+                return
+            default:
+                // AppKit still needs activation and window-management events
+                // so the user can return to another window's pending sheet.
+                break
+            }
+        }
+        super.sendEvent(event)
+    }
+
+    override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
+        guard !isInputLocked || responder == nil else { return false }
+        return super.makeFirstResponder(responder)
+    }
+}
+
+private final class SessionMenuAction {
+    let perform: () -> Void
+    init(_ perform: @escaping () -> Void) { self.perform = perform }
+}
+
 final class TerminalTab {
     let id: TabID
     var ordinal: Int { id.raw }
@@ -7,6 +42,13 @@ final class TerminalTab {
     var terminalTitle = ""
     var tabTitle: String?
     var workingDirectory: String?
+    var groupID: UUID?
+    private static var nextIdentity = 1
+
+    static func allocateID() -> TabID {
+        defer { nextIdentity += 1 }
+        return TabID(raw: nextIdentity)
+    }
 
     init(id: TabID, view: TerminalSurfaceView) {
         self.id = id
@@ -24,341 +66,6 @@ final class TerminalTab {
             if !name.isEmpty && name != "/" { return name }
         }
         return "Terminal \(ordinal)"
-    }
-}
-
-/// Keeps a short tab list at the top. The default clip view pins a
-/// short document to the bottom of the sidebar.
-private final class TopClipView: NSClipView {
-    override var isFlipped: Bool { true }
-    override var mouseDownCanMoveWindow: Bool { true }
-}
-
-private func paintFill(_ layer: CALayer?, color: NSColor, animated: Bool, duration requested: CFTimeInterval = 0.14) {
-    guard let layer else { return }
-    let next = color.cgColor
-    let duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : requested
-    if animated, duration > 0 {
-        let animation = CABasicAnimation(keyPath: "backgroundColor")
-        animation.fromValue = layer.presentation()?.backgroundColor ?? layer.backgroundColor
-        animation.toValue = next
-        animation.duration = duration
-        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        layer.add(animation, forKey: "fill")
-    }
-    layer.backgroundColor = next
-}
-
-/// One sidebar row. The same ghost on every row carried no information and
-/// ate the title, so the row is type only. Selection is a lighter pass of
-/// the terminal background, not a second color.
-private final class TabRowView: NSView {
-    var onSelect: (() -> Void)?
-    var onClose: (() -> Void)?
-    var onMenu: ((NSEvent) -> Void)?
-
-    private var model = TabPresentation(primary: "", secondary: nil, accessibility: "")
-    private var surfaceBackground = BoomeChrome.fallbackBackground
-    private var selected = false
-    private var hovered = false
-    private var tracking: NSTrackingArea?
-    private var heightConstraint: NSLayoutConstraint?
-    private var pulseToken = 0
-
-    override var isFlipped: Bool { true }
-    override var acceptsFirstResponder: Bool { false }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-        layer?.cornerRadius = 8
-        layer?.masksToBounds = true
-        layer?.backgroundColor = NSColor.clear.cgColor
-        setAccessibilityRole(.button)
-        setAccessibilityCustomActions([
-            NSAccessibilityCustomAction(name: "Close Tab") { [weak self] in
-                self?.onClose?()
-                return true
-            },
-        ])
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) is not used")
-    }
-
-    func show(_ model: TabPresentation, selected: Bool, background: NSColor, animated: Bool) {
-        let selectionChanged = self.selected != selected
-        self.model = model
-        self.selected = selected
-        surfaceBackground = background
-        toolTip = model.accessibility
-        setAccessibilityLabel(model.accessibility)
-        setAccessibilitySelected(selected)
-        heightConstraint?.constant = TabPresentation.rowHeight(hasSecondary: model.secondary != nil)
-        applyChrome(animated: animated && selectionChanged)
-    }
-
-    func pinHeight() {
-        let constraint = heightAnchor.constraint(equalToConstant: TabPresentation.rowHeight(hasSecondary: model.secondary != nil))
-        constraint.isActive = true
-        heightConstraint = constraint
-    }
-
-    /// Keyboard landing. A brief lift, then back to the selection fill.
-    func pulse() {
-        guard SelectionPulse.plays(
-            marked: selected,
-            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        ) else { return }
-        pulseToken += 1
-        let token = pulseToken
-        let flash = BoomeChrome.isDark(surfaceBackground)
-            ? NSColor(white: 1, alpha: 0.22)
-            : NSColor(white: 0, alpha: 0.12)
-        paintFill(layer, color: flash, animated: false)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.09) { [weak self] in
-            guard let self, self.pulseToken == token, self.selected else { return }
-            paintFill(self.layer, color: BoomeChrome.selectionFill(on: self.surfaceBackground), animated: true, duration: 0.28)
-        }
-    }
-
-    func use(background: NSColor) {
-        surfaceBackground = background
-        applyChrome(animated: false)
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(area)
-        tracking = area
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        hovered = true
-        applyChrome(animated: true)
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        hovered = false
-        applyChrome(animated: true)
-    }
-
-    override func mouseDown(with event: NSEvent) {}
-
-    override func mouseUp(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        guard bounds.contains(point) else { return }
-        if showsClose, closeHitRect.contains(point) {
-            onClose?()
-            return
-        }
-        onSelect?()
-    }
-
-    override func rightMouseDown(with event: NSEvent) {
-        onMenu?(event)
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let showClose = selected || hovered
-        let left: CGFloat = 12
-        let right: CGFloat = showClose ? 30 : 12
-        let width = max(0, bounds.width - left - right)
-        let primaryFont = NSFont.systemFont(ofSize: 13, weight: selected ? .semibold : .medium)
-        let primaryStyle = NSMutableParagraphStyle()
-        primaryStyle.lineBreakMode = .byTruncatingTail
-        let primaryAttrs: [NSAttributedString.Key: Any] = [
-            .font: primaryFont,
-            .foregroundColor: BoomeChrome.text(selected: selected, on: surfaceBackground),
-            .paragraphStyle: primaryStyle,
-        ]
-        let hasSecondary = model.secondary != nil
-        let primaryHeight: CGFloat = 18
-        let secondaryHeight: CGFloat = hasSecondary ? 14 : 0
-        let gap: CGFloat = hasSecondary ? 2 : 0
-        let block = primaryHeight + gap + secondaryHeight
-        let top = ((bounds.height - block) / 2).rounded()
-        (model.primary as NSString).draw(
-            with: NSRect(x: left, y: top, width: width, height: primaryHeight),
-            options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
-            attributes: primaryAttrs
-        )
-        if let secondary = model.secondary {
-            let secondaryStyle = NSMutableParagraphStyle()
-            secondaryStyle.lineBreakMode = .byTruncatingMiddle
-            let secondaryAttrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 11, weight: .regular),
-                .foregroundColor: BoomeChrome.secondaryText(selected: selected, on: surfaceBackground),
-                .paragraphStyle: secondaryStyle,
-            ]
-            (secondary as NSString).draw(
-                with: NSRect(x: left, y: top + primaryHeight + gap, width: width, height: secondaryHeight),
-                options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
-                attributes: secondaryAttrs
-            )
-        }
-        guard showsClose, let symbol = TabRowView.closeImage(BoomeChrome.text(selected: selected, on: surfaceBackground)) else {
-            return
-        }
-        let side: CGFloat = 11
-        symbol.draw(
-            in: NSRect(
-                x: bounds.width - 14 - side,
-                y: ((bounds.height - side) / 2).rounded(),
-                width: side,
-                height: side
-            ),
-            from: .zero,
-            operation: .sourceOver,
-            fraction: 1,
-            respectFlipped: true,
-            hints: nil
-        )
-    }
-
-    private var showsClose: Bool { TabChrome.showsClose(selected: selected, hovered: hovered) }
-
-    /// Wider than the glyph so the close affordance is the trailing edge, not a 10-point mark.
-    private var closeHitRect: NSRect {
-        NSRect(x: bounds.width - 36, y: 0, width: 36, height: bounds.height)
-    }
-
-    private func applyChrome(animated: Bool) {
-        let role: BoomeChrome.RowRole
-        if selected {
-            role = .selected
-        } else if hovered {
-            role = .hover
-        } else {
-            role = .rest
-        }
-        paintFill(layer, color: BoomeChrome.rowFill(role, on: surfaceBackground), animated: animated)
-        needsDisplay = true
-    }
-
-    private static func closeImage(_ color: NSColor) -> NSImage? {
-        let symbol = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close Tab")
-        let size = NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
-        let palette = NSImage.SymbolConfiguration(paletteColors: [color])
-        return symbol?.withSymbolConfiguration(size.applying(palette))
-    }
-
-    @objc private func closePressed(_ sender: Any?) {
-        onClose?()
-    }
-}
-
-/// Weak action: no resting fill, so the selected tab is the only solid shape.
-private final class QuietAddButton: NSView {
-    var onPress: (() -> Void)?
-
-    private var surfaceBackground = BoomeChrome.fallbackBackground
-    private var hovered = false
-    private var tracking: NSTrackingArea?
-
-    override var isFlipped: Bool { true }
-    override var acceptsFirstResponder: Bool { false }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-        layer?.cornerRadius = 8
-        layer?.masksToBounds = true
-        layer?.backgroundColor = NSColor.clear.cgColor
-        toolTip = "New Tab (⌘T)"
-        setAccessibilityRole(.button)
-        setAccessibilityLabel("New Tab")
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) is not used")
-    }
-
-    func use(background: NSColor) {
-        surfaceBackground = background
-        paint(animated: false)
-        needsDisplay = true
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(area)
-        tracking = area
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        hovered = true
-        paint(animated: true)
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        hovered = false
-        paint(animated: true)
-    }
-
-    override func mouseDown(with event: NSEvent) {}
-
-    override func mouseUp(with event: NSEvent) {
-        let inside = bounds.contains(convert(event.locationInWindow, from: nil))
-        if inside { onPress?() }
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let color = BoomeChrome.text(selected: false, on: surfaceBackground)
-        let iconSide: CGFloat = 12
-        let iconX: CGFloat = 12
-        let iconY = ((bounds.height - iconSide) / 2).rounded()
-        if let symbol = Self.plusImage(color) {
-            symbol.draw(
-                in: NSRect(x: iconX, y: iconY, width: iconSide, height: iconSide),
-                from: .zero,
-                operation: .sourceOver,
-                fraction: 1,
-                respectFlipped: true,
-                hints: nil
-            )
-        }
-        let style = NSMutableParagraphStyle()
-        style.lineBreakMode = .byTruncatingTail
-        let titleHeight: CGFloat = 16
-        let titleY = ((bounds.height - titleHeight) / 2).rounded()
-        ("New Tab" as NSString).draw(
-            with: NSRect(x: 12 + iconSide + 6, y: titleY, width: max(0, bounds.width - 42), height: titleHeight),
-            options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
-            attributes: [
-                .font: NSFont.systemFont(ofSize: 13, weight: .medium),
-                .foregroundColor: color,
-                .paragraphStyle: style,
-            ]
-        )
-    }
-
-    private func paint(animated: Bool) {
-        paintFill(layer, color: BoomeChrome.newTabFill(hovered: hovered, on: surfaceBackground), animated: animated)
-    }
-
-    private static func plusImage(_ color: NSColor) -> NSImage? {
-        let symbol = NSImage(systemSymbolName: "plus", accessibilityDescription: "New Tab")
-        let size = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
-        let palette = NSImage.SymbolConfiguration(paletteColors: [color])
-        return symbol?.withSymbolConfiguration(size.applying(palette))
     }
 }
 
@@ -487,138 +194,7 @@ private final class SidebarToggleButton: NSView {
     }
 }
 
-final class TabSidebar: NSView {
-    var onSelect: ((Int) -> Void)?
-    var onClose: ((Int) -> Void)?
-    var onNew: (() -> Void)?
-    var onMenu: ((Int, NSEvent) -> Void)?
-
-    private let scroll = NSScrollView()
-    private let stack = NSStackView()
-    private let addButton = QuietAddButton()
-    private var rowViews: [TabRowView] = []
-    private var selected = 0
-    private var surfaceBackground = BoomeChrome.fallbackBackground
-
-    override var mouseDownCanMoveWindow: Bool { true }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-
-        stack.orientation = .vertical
-        stack.alignment = .width
-        stack.spacing = 4
-        stack.edgeInsets = NSEdgeInsets(top: 4, left: 8, bottom: 8, right: 8)
-        stack.setHuggingPriority(.required, for: .vertical)
-        stack.setHuggingPriority(.required, for: .horizontal)
-        stack.translatesAutoresizingMaskIntoConstraints = false
-
-        scroll.drawsBackground = false
-        scroll.backgroundColor = .clear
-        scroll.hasVerticalScroller = true
-        scroll.hasHorizontalScroller = false
-        scroll.autohidesScrollers = true
-        scroll.scrollerStyle = .overlay
-        scroll.automaticallyAdjustsContentInsets = false
-        scroll.contentInsets = NSEdgeInsets()
-        let clip = TopClipView()
-        clip.drawsBackground = false
-        scroll.contentView = clip
-        scroll.documentView = stack
-        scroll.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(scroll)
-
-        addButton.translatesAutoresizingMaskIntoConstraints = false
-        addButton.onPress = { [weak self] in self?.onNew?() }
-        addSubview(addButton)
-        NSLayoutConstraint.activate([
-            scroll.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 4),
-            scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scroll.bottomAnchor.constraint(equalTo: addButton.topAnchor, constant: -4),
-            addButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            addButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            addButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
-            addButton.heightAnchor.constraint(equalToConstant: 36),
-            stack.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
-        ])
-        refreshAppearance()
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) is not used")
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        refreshAppearance()
-    }
-
-    func reload(rows: [TabPresentation], selected index: Int, pulse: Bool = false) {
-        let reveal = rowViews.count != rows.count || index != selected
-        let animateSelection = !rowViews.isEmpty && index != selected
-        selected = index
-        if rowViews.count != rows.count {
-            for row in rowViews { row.removeFromSuperview() }
-            rowViews.removeAll()
-            for (offset, model) in rows.enumerated() {
-                let row = TabRowView()
-                row.onSelect = { [weak self] in self?.onSelect?(offset) }
-                row.onClose = { [weak self] in self?.onClose?(offset) }
-                row.onMenu = { [weak self] event in self?.onMenu?(offset, event) }
-                row.translatesAutoresizingMaskIntoConstraints = false
-                stack.addArrangedSubview(row)
-                row.show(model, selected: offset == index, background: surfaceBackground, animated: false)
-                row.pinHeight()
-                rowViews.append(row)
-            }
-            if pulse, rowViews.indices.contains(index) {
-                rowViews[index].pulse()
-            }
-            if reveal { revealSelected() }
-            return
-        }
-        for (offset, model) in rows.enumerated() {
-            rowViews[offset].show(model, selected: offset == index, background: surfaceBackground, animated: animateSelection && !pulse)
-        }
-        if pulse, rowViews.indices.contains(index) {
-            rowViews[index].pulse()
-        }
-        if reveal { revealSelected() }
-    }
-
-    /// Switch, insert, remove, and layout changes. A title refresh uses
-    /// `reload` with the same selection and does not come through here.
-    func revealSelection() {
-        revealSelected()
-    }
-
-    /// The selected row stays in the clip.
-    private func revealSelected() {
-        guard rowViews.indices.contains(selected) else { return }
-        layoutSubtreeIfNeeded()
-        let row = rowViews[selected]
-        let rect = row.convert(row.bounds, to: scroll.contentView)
-        scroll.contentView.scrollToVisible(rect)
-    }
-
-    func use(background: NSColor) {
-        surfaceBackground = background
-        refreshAppearance()
-    }
-
-    private func refreshAppearance() {
-        layer?.backgroundColor = surfaceBackground.cgColor
-        addButton.use(background: surfaceBackground)
-        for row in rowViews {
-            row.use(background: surfaceBackground)
-        }
-    }
-}
-
-final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyHostDelegate {
+final class MainWindowController: NSWindowController, NSWindowDelegate {
     private enum WindowFollowUp {
         case closeWindow
         case quit
@@ -648,7 +224,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
     private var explorerSeparatorWidth: NSLayoutConstraint!
     private var tabs: [TerminalTab] = []
     private var selected = 0
-    private var nextOrdinal = 1
+    private var groups: [UUID: SessionGroup] = [:]
+    private weak var workspace: SessionWindowManager?
+    private let restoresFrame: Bool
+    private var quitCompletion: ((Bool) -> Void)?
     private var sidebarCollapsed = false
     private var explorerVisible = false
     private var editorVisible = false
@@ -658,6 +237,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
     private var windowProbe: WindowProbe?
     private var windowFollowUp: WindowFollowUp?
     private var allowWindowClose = false
+    private weak var terminationFirstResponder: NSResponder?
     private var confirmAlert: NSAlert?
 
     var isSidebarCollapsed: Bool { sidebarCollapsed }
@@ -666,15 +246,115 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
     var isEditorFocused: Bool { editorVisible && fileEditor.isFocused }
     var canSaveFile: Bool { fileEditor.document != nil && fileEditor.hasUnsavedChanges && !fileEditor.isBusy }
 
-    /// Quit may proceed. A live process still has to be confirmed first.
-    func approveTermination() -> Bool { allowWindowClose }
-
-    func requestQuit() {
+    func requestQuit(_ completion: @escaping (Bool) -> Void) {
+        if allowWindowClose { completion(true); return }
+        quitCompletion = completion
         requestWindowClose(followUp: .quit)
     }
 
-    init() {
-        let window = NSWindow(
+    var arrangement: SessionArrangement {
+        SessionArrangement(items: tabs.map { SessionItem(id: $0.id, groupID: $0.groupID) }, groups: groups)
+    }
+    var selectedTabID: TabID? { tabs.indices.contains(selected) ? tabs[selected].id : nil }
+    var canMoveSessions: Bool {
+        !allowWindowClose && !closePolicy.isBusy && windowProbe == nil && windowFollowUp == nil
+            && window?.attachedSheet == nil && !fileEditor.isBusy
+    }
+
+    func contains(surface: GhosttyHost.Surface) -> Bool { tabs.contains { $0.view.surface === surface } }
+    func tabs(with ids: Set<TabID>) -> [TerminalTab] { tabs.filter { ids.contains($0.id) } }
+    func close(surface: GhosttyHost.Surface) {
+        if let index = tabs.firstIndex(where: { $0.view.surface === surface }) { closeTab(at: index) }
+    }
+
+    func applyArrangement(_ next: SessionArrangement, adding incoming: [TerminalTab], selecting id: TabID?, focus: Bool) {
+        let previous = selectedTabID
+        let nativeFocus = fileEditor.isFocused || projectExplorer.isFocused ? window?.firstResponder : nil
+        let ids = Set(next.ids)
+        let pool = Dictionary(uniqueKeysWithValues: (tabs + incoming).map { ($0.id, $0) })
+        for tab in tabs where !ids.contains(tab.id) {
+            tab.view.showSurface(false)
+            tab.view.removeFromSuperview()
+        }
+        for tab in incoming { install(tab) }
+        tabs = next.ids.compactMap { pool[$0] }
+        for (index, item) in next.items.enumerated() { tabs[index].groupID = item.groupID }
+        groups = next.groups
+        selected = id.flatMap { next.ids.firstIndex(of: $0) } ?? 0
+        if previous != selectedTabID || !incoming.isEmpty {
+            updateSurfaceVisibility()
+        } else { syncProjectExplorer() }
+        reloadSidebar()
+        if focus { focusSelected() }
+        else if let nativeFocus { window?.makeFirstResponder(nativeFocus) }
+    }
+
+    func finishTransferOut() {
+        guard tabs.isEmpty else { return }
+        if fileEditor.hasUnsavedChanges {
+            showEditor()
+            fileEditor.focus()
+        } else { closeEmptyWindow() }
+    }
+
+    func closeEmptyWindow() {
+        guard tabs.isEmpty, !fileEditor.hasUnsavedChanges, !fileEditor.isBusy else { return }
+        allowWindowClose = true
+        window?.close()
+    }
+
+    func position(at point: NSPoint?, relativeTo source: NSWindow? = nil) {
+        guard let window else { return }
+        var frame = window.frame
+        if let source { frame.size = source.frame.size }
+        if let point { frame.origin = NSPoint(x: point.x - 100, y: point.y - frame.height + 24) }
+        else if let source { frame.origin = NSPoint(x: source.frame.minX + 28, y: source.frame.minY - 28) }
+        let screen = point.flatMap { point in NSScreen.screens.first { $0.frame.contains(point) } } ?? source?.screen ?? window.screen ?? NSScreen.main
+        if let visible = screen?.visibleFrame {
+            frame.origin.x = max(visible.minX, min(frame.minX, visible.maxX - frame.width))
+            frame.origin.y = max(visible.minY, min(frame.minY, visible.maxY - frame.height))
+        }
+        window.setFrame(frame, display: false)
+    }
+
+    func showAfterTransfer() {
+        showWindow(nil)
+        window?.deminiaturize(nil)
+        window?.makeKeyAndOrderFront(nil)
+        applySidebarWidth(animated: false)
+        focusSelected()
+    }
+
+    func rememberWindowFrame() {
+        window?.setFrameAutosaveName(ChromeMemory.frameAutosaveName)
+        window?.saveFrame(usingName: ChromeMemory.frameAutosaveName)
+    }
+
+    func resetTerminationApproval() {
+        allowWindowClose = false
+        (window as? SessionWindow)?.isInputLocked = false
+        fileEditor.setInteractionLocked(false)
+        if let terminationFirstResponder { window?.makeFirstResponder(terminationFirstResponder) }
+        terminationFirstResponder = nil
+    }
+
+    private func lockApprovedWindow() {
+        terminationFirstResponder = window?.firstResponder
+        fileEditor.setInteractionLocked(true)
+        (window as? SessionWindow)?.isInputLocked = true
+        window?.makeFirstResponder(nil)
+    }
+
+    private func completeQuit(_ allowed: Bool) {
+        let completion = quitCompletion
+        quitCompletion = nil
+        completion?(allowed)
+    }
+
+    init(workspace: SessionWindowManager, initialTab: Bool = true, restoreFrame: Bool = false) {
+        self.workspace = workspace
+        restoresFrame = restoreFrame
+        let window = SessionWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1100, height: 720),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
@@ -687,12 +367,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.tabbingMode = .disallowed
+        window.contentView = SessionDropView(frame: window.contentView?.frame ?? .zero)
         super.init(window: window)
         window.delegate = self
-        host.delegate = self
         buildChrome()
         restoreChrome()
-        newTab()
+        if initialTab { newTab() }
         appearanceObserver = NSApp.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, _ in
             DispatchQueue.main.async {
                 GhosttyHost.shared.applySystemColorScheme()
@@ -709,12 +389,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
     func show() {
         guard let window else { return }
         let saved = UserDefaults.standard.string(forKey: ChromeMemory.frameDefaultsKey)
-        if ChromeMemory.hasSavedFrame(saved) {
+        if restoresFrame && ChromeMemory.hasSavedFrame(saved) {
             window.setFrameUsingName(ChromeMemory.frameAutosaveName)
         } else {
             window.center()
         }
-        window.setFrameAutosaveName(ChromeMemory.frameAutosaveName)
+        if restoresFrame { window.setFrameAutosaveName(ChromeMemory.frameAutosaveName) }
+        applySidebarWidth(animated: false)
         showWindow(nil)
         window.makeKeyAndOrderFront(nil)
         placeSidebarToggle()
@@ -768,12 +449,19 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
     }
 
     func newTab() {
-        guard let tab = createTab(replacingLast: false) else { return }
+        guard workspace?.isPreparingTermination != true, canMoveSessions,
+              let tab = createTab(replacingLast: false) else { return }
         install(tab)
-        var list = TabList(ids: tabs.map(\.id), selected: tabs.isEmpty ? 0 : selected)
-        list.append(tab.id)
-        tabs.append(tab)
-        selected = list.selected
+        if tabs.indices.contains(selected), let group = tabs[selected].groupID,
+           let last = tabs.lastIndex(where: { $0.groupID == group }) {
+            tab.groupID = group
+            groups[group]?.collapsed = false
+            tabs.insert(tab, at: last + 1)
+            selected = last + 1
+        } else {
+            tabs.append(tab)
+            selected = tabs.count - 1
+        }
         updateSurfaceVisibility()
         reloadSidebar()
         focusSelected()
@@ -784,6 +472,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
     }
 
     func cycle(_ cycle: GhosttyHost.Cycle) {
+        guard workspace?.isPreparingTermination != true else { return }
         let move: TabNavigation.Move
         switch cycle {
         case .previous: move = .previous
@@ -877,10 +566,51 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
             editorWidth,
         ])
 
-        sidebar.onSelect = { [weak self] index in self?.select(index) }
-        sidebar.onClose = { [weak self] index in self?.closeTab(at: index) }
+        sidebar.onSelect = { [weak self] id in
+            guard let self, let index = self.tabs.firstIndex(where: { $0.id == id }) else { return }
+            self.select(index)
+        }
+        sidebar.onClose = { [weak self] id in
+            guard let self, let index = self.tabs.firstIndex(where: { $0.id == id }) else { return }
+            self.closeTab(at: index)
+        }
         sidebar.onNew = { [weak self] in self?.newTab() }
-        sidebar.onMenu = { [weak self] index, event in self?.showTabMenu(at: index, event: event) }
+        sidebar.onMenu = { [weak self] id, event in
+            guard let self, let index = self.tabs.firstIndex(where: { $0.id == id }) else { return }
+            self.showTabMenu(at: index, event: event)
+        }
+        sidebar.onToggleGroup = { [weak self] id in
+            guard let self, self.canMoveSessions, self.workspace?.isPreparingTermination != true else { return }
+            self.groups[id]?.collapsed.toggle()
+            self.reloadSidebar()
+        }
+        sidebar.onGroupMenu = { [weak self] id, event in self?.showGroupMenu(id, event: event) }
+        sidebar.onBeginDrag = { [weak self] item in
+            guard let self else { return nil }
+            return self.workspace?.beginDrag(item, from: self)
+        }
+        sidebar.onDragItem = { [weak self] token in self?.workspace?.dragItem(for: token) }
+        sidebar.onCanDrop = { [weak self] token, target in
+            guard let self else { return false }
+            return self.workspace?.canDrop(token, into: self, at: target) == true
+        }
+        sidebar.onDrop = { [weak self] token, target in
+            guard let self else { return false }
+            return self.workspace?.drop(token, into: self, at: target) == true
+        }
+        sidebar.onDragEnded = { [weak self] token, point, operation in
+            self?.workspace?.endDrag(token, at: point, operation: operation)
+        }
+        if let content = content as? SessionDropView {
+            content.onCanDrop = { [weak self] token in
+                guard let self else { return false }
+                return self.workspace?.canDrop(token, into: self, at: .end, background: true) == true
+            }
+            content.onDrop = { [weak self] token in
+                guard let self else { return false }
+                return self.workspace?.drop(token, into: self, at: .end) == true
+            }
+        }
         projectExplorer.onClose = { [weak self] in self?.toggleProjectExplorer() }
         projectExplorer.onReturnToTerminal = { [weak self] in self?.focusSelected() }
         projectExplorer.onOpenFile = { [weak self] url in self?.fileEditor.open(url) }
@@ -960,6 +690,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
     /// Sidebar and title bar use the terminal background, so the window is one surface.
     private func applyTerminalChrome() {
         let background = host.terminalBackground()
+        (window?.contentView as? SessionDropView)?.use(background: background)
         let appearance = NSAppearance(named: BoomeChrome.isDark(background) ? .darkAqua : .aqua)
         window?.backgroundColor = background
         window?.appearance = appearance
@@ -989,8 +720,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
             contextTab: !tabs.isEmpty && !replacingLast
         ) else { return nil }
         view.attach(surface)
-        let tab = TerminalTab(id: TabID(raw: nextOrdinal), view: view)
-        nextOrdinal += 1
+        let tab = TerminalTab(id: TerminalTab.allocateID(), view: view)
         tab.workingDirectory = directory
         return tab
     }
@@ -1008,16 +738,18 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
     }
 
     private func select(_ index: Int, pulse: Bool = false) {
-        guard tabs.indices.contains(index) else { return }
+        guard workspace?.isPreparingTermination != true, tabs.indices.contains(index) else { return }
         selected = index
+        if let group = tabs[index].groupID { groups[group]?.collapsed = false }
         updateSurfaceVisibility()
         reloadSidebar(pulse: pulse)
         focusSelected()
     }
 
     private func focusSelected() {
-        guard tabs.indices.contains(selected), let window else { return }
+        guard !allowWindowClose, tabs.indices.contains(selected), let window else { return }
         window.makeFirstResponder(tabs[selected].view)
+        tabs[selected].view.focusSurface(window.isKeyWindow)
         syncWindowTitles()
     }
 
@@ -1025,7 +757,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         let rows = TabPresentation.disambiguate(
             tabs.map { TabPresentation.make(label: $0.label, customTitle: $0.tabTitle != nil) }
         )
-        sidebar.reload(rows: rows, selected: selected, pulse: pulse)
+        sidebar.reload(arrangement: arrangement, rows: rows, selected: selectedTabID, pulse: pulse)
         syncWindowTitles()
     }
 
@@ -1037,26 +769,19 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         guard list.close(tab.id, replacement: created?.id ?? tab.id) != nil else { return }
         if let created { install(created) }
         tab.view.removeFromSuperview()
-        host.destroy(tab.view.surface)
+        tab.view.releaseSurface()
         var pool = tabs
         if let created { pool.append(created) }
         let byID = Dictionary(uniqueKeysWithValues: pool.map { ($0.id, $0) })
         tabs = list.ids.compactMap { byID[$0] }
         selected = list.selected
+        var order = arrangement
+        order.pruneEmptyGroups()
+        groups = order.groups
         updateSurfaceVisibility()
         reloadSidebar()
         focusSelected()
     }
-
-    func ghosttyHostOpenNewTab(_ host: GhosttyHost) { newTab() }
-
-    func ghosttyHostCloseCurrentTab(_ host: GhosttyHost) { closeCurrentTab() }
-
-    func ghosttyHostCloseWindow(_ host: GhosttyHost) {
-        requestWindowClose(followUp: .closeWindow)
-    }
-
-    func ghosttyHost(_ host: GhosttyHost, cycle: GhosttyHost.Cycle) { self.cycle(cycle) }
 
     func ghosttyHost(_ host: GhosttyHost, surface: GhosttyHost.Surface, setTitle title: String) {
         guard let tab = tabs.first(where: { $0.view.surface === surface }) else { return }
@@ -1129,6 +854,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if workspace?.isPreparingTermination == true { return false }
         if allowWindowClose { return true }
         requestWindowClose(followUp: .closeWindow)
         return false
@@ -1138,60 +864,158 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         if !fileEditor.isFocused && !projectExplorer.isFocused { focusSelected() }
     }
 
+    func windowDidResignKey(_ notification: Notification) {
+        for tab in tabs { tab.view.focusSurface(false) }
+    }
+
     func windowDidResize(_ notification: Notification) {
         applySidebarWidth(animated: false)
         sidebar.revealSelection()
     }
 
     func windowWillClose(_ notification: Notification) {
-        host.shutdown()
+        for tab in tabs {
+            tab.view.removeFromSuperview()
+            tab.view.releaseSurface()
+        }
+        tabs.removeAll()
+        groups.removeAll()
+        workspace?.didClose(self)
     }
 
+
     private func showTabMenu(at index: Int, event: NSEvent) {
-        guard tabs.indices.contains(index) else { return }
+        guard tabs.indices.contains(index), canMoveSessions, workspace?.isPreparingTermination != true else { return }
+        let id = tabs[index].id
         let menu = NSMenu()
-        let newItem = NSMenuItem(title: "New Tab", action: #selector(newTabFromMenu(_:)), keyEquivalent: "t")
-        newItem.keyEquivalentModifierMask = .command
-        newItem.target = self
-        menu.addItem(newItem)
+        menu.autoenablesItems = false
+        addAction("New Tab", to: menu) { [weak self] in self?.newTab() }
+        addAction("Close Tab", to: menu) { [weak self] in self?.requestClose(ids: [id]) }
+        addAction("Close Other Tabs", to: menu, enabled: tabs.count > 1) { [weak self] in
+            guard let self else { return }
+            self.requestClose(ids: self.tabs.map(\.id).filter { $0 != id })
+        }
+        addAction("Close Tabs to the Right", to: menu, enabled: index < tabs.count - 1) { [weak self] in
+            guard let self, let index = self.tabs.firstIndex(where: { $0.id == id }) else { return }
+            self.requestClose(ids: Array(self.tabs.dropFirst(index + 1).map(\.id)))
+        }
         menu.addItem(.separator())
-        let closeItem = NSMenuItem(title: "Close Tab", action: #selector(closeFromMenu(_:)), keyEquivalent: "w")
-        closeItem.keyEquivalentModifierMask = .command
-        closeItem.target = self
-        closeItem.representedObject = index
-        menu.addItem(closeItem)
-        let others = NSMenuItem(title: "Close Other Tabs", action: #selector(closeOthersFromMenu(_:)), keyEquivalent: "")
-        others.target = self
-        others.representedObject = index
-        others.isEnabled = tabs.count > 1
-        menu.addItem(others)
-        let right = NSMenuItem(title: "Close Tabs to the Right", action: #selector(closeRightFromMenu(_:)), keyEquivalent: "")
-        right.target = self
-        right.representedObject = index
-        right.isEnabled = index < tabs.count - 1
-        menu.addItem(right)
+        addAction("New Group", to: menu) { [weak self] in
+            guard let self else { return }
+            var next = self.arrangement
+            next.removeFromGroup(id)
+            guard let index = next.items.firstIndex(where: { $0.id == id }) else { return }
+            let group = SessionGroup(id: UUID(), name: next.nextGroupName)
+            next.groups[group.id] = group
+            next.items[index].groupID = group.id
+            self.applyArrangement(next, adding: [], selecting: self.selectedTabID, focus: false)
+        }
+        if let active = selectedTabID, active != id, tabs[index].groupID == nil || tabs[index].groupID != tabs[selected].groupID {
+            addAction("Group with Active Tab", to: menu) { [weak self] in
+                guard let self else { return }
+                self.workspace?.transfer(.tab(id), from: self, to: self, at: .intoTab(active))
+            }
+        }
+        if tabs[index].groupID != nil {
+            addAction("Remove from Group", to: menu) { [weak self] in
+                guard let self else { return }
+                var next = self.arrangement
+                next.removeFromGroup(id)
+                self.applyArrangement(next, adding: [], selecting: self.selectedTabID, focus: false)
+            }
+        }
+        var seen: Set<UUID> = []
+        let destinations = tabs.compactMap(\.groupID).filter { seen.insert($0).inserted && $0 != tabs[index].groupID }
+        if !destinations.isEmpty {
+            let parent = NSMenuItem(title: "Move to Group", action: nil, keyEquivalent: "")
+            let submenu = NSMenu()
+            submenu.autoenablesItems = false
+            for group in destinations {
+                addAction(groups[group]?.name ?? "Group", to: submenu) { [weak self] in
+                    guard let self else { return }
+                    self.workspace?.transfer(.tab(id), from: self, to: self, at: .intoGroup(group))
+                }
+            }
+            parent.submenu = submenu
+            menu.addItem(parent)
+        }
+        menu.addItem(.separator())
+        addWindowActions(for: .tab(id), to: menu)
         NSMenu.popUpContextMenu(menu, with: event, for: sidebar)
     }
 
-    @objc private func newTabFromMenu(_ sender: Any?) {
-        newTab()
+    private func showGroupMenu(_ id: UUID, event: NSEvent) {
+        guard groups[id] != nil, canMoveSessions, workspace?.isPreparingTermination != true else { return }
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        addAction("Rename Group…", to: menu) { [weak self] in self?.renameGroup(id) }
+        addAction("Ungroup", to: menu) { [weak self] in
+            guard let self else { return }
+            var next = self.arrangement
+            next.ungroup(id)
+            self.applyArrangement(next, adding: [], selecting: self.selectedTabID, focus: false)
+        }
+        addWindowActions(for: .group(id), to: menu)
+        menu.addItem(.separator())
+        addAction("Close Group", to: menu) { [weak self] in
+            guard let self else { return }
+            self.requestClose(ids: self.arrangement.ids(for: .group(id)))
+        }
+        NSMenu.popUpContextMenu(menu, with: event, for: sidebar)
     }
 
-    @objc private func closeFromMenu(_ sender: NSMenuItem) {
-        guard let index = sender.representedObject as? Int else { return }
-        closeTab(at: index)
+    private func addWindowActions(for item: SessionDragItem, to menu: NSMenu) {
+        addAction("Move to New Window", to: menu, enabled: arrangement.ids(for: item).count < tabs.count) { [weak self] in
+            guard let self else { return }
+            self.workspace?.moveToNewWindow(item, from: self)
+        }
+        let destinations = workspace?.controllers.filter { $0 !== self && $0.canMoveSessions } ?? []
+        guard !destinations.isEmpty else { return }
+        let parent = NSMenuItem(title: "Move to Window", action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        submenu.autoenablesItems = false
+        for (index, destination) in destinations.enumerated() {
+            addAction("\(index + 1). \(destination.window?.title ?? "Boome")", to: submenu) { [weak self, weak destination] in
+                guard let self, let destination else { return }
+                self.workspace?.transfer(item, from: self, to: destination)
+            }
+        }
+        parent.submenu = submenu
+        menu.addItem(parent)
     }
 
-    @objc private func closeOthersFromMenu(_ sender: NSMenuItem) {
-        guard let index = sender.representedObject as? Int else { return }
-        let ids = TabList(ids: tabs.map(\.id), selected: selected).requestingCloseOthers(keeping: index)
-        requestClose(ids: ids)
+    private func renameGroup(_ id: UUID) {
+        guard let window, let group = groups[id] else { return }
+        let alert = NSAlert()
+        alert.messageText = "Rename Group"
+        let field = NSTextField(string: group.name)
+        field.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Rename")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn, let self, self.groups[id] != nil else { return }
+            let name = String(field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80))
+            guard !name.isEmpty else { return }
+            self.groups[id]?.name = name
+            self.reloadSidebar()
+        }
     }
 
-    @objc private func closeRightFromMenu(_ sender: NSMenuItem) {
-        guard let index = sender.representedObject as? Int else { return }
-        let ids = TabList(ids: tabs.map(\.id), selected: selected).requestingCloseRight(of: index)
-        requestClose(ids: ids)
+    @discardableResult
+    private func addAction(_ title: String, to menu: NSMenu, enabled: Bool = true, perform: @escaping () -> Void) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: #selector(performMenuAction(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = SessionMenuAction(perform)
+        item.isEnabled = enabled
+        menu.addItem(item)
+        return item
+    }
+
+    @objc private func performMenuAction(_ sender: NSMenuItem) {
+        guard canMoveSessions, workspace?.isPreparingTermination != true else { return }
+        (sender.representedObject as? SessionMenuAction)?.perform()
     }
 
     private func closeTab(at index: Int) {
@@ -1200,6 +1024,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
     }
 
     private func requestClose(ids: [TabID]) {
+        guard workspace?.isPreparingTermination != true else { return }
         if closePolicy.isBusy || windowProbe != nil { return }
         let targets = ids.filter { id in tabs.contains { $0.id == id } }
         if targets.count > 1, !closePolicy.beginBatch(targets) { return }
@@ -1246,6 +1071,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
                 self.performWindowClose(self.windowFollowUp ?? .closeWindow)
             case .keep, .none:
                 self.windowFollowUp = nil
+                self.completeQuit(false)
             }
         }
     }
@@ -1254,11 +1080,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         fileEditor.prepareToLeave { [weak self] allowed in
             guard let self else { return }
             self.windowFollowUp = nil
-            guard allowed else { return }
+            guard allowed else { self.completeQuit(false); return }
             self.allowWindowClose = true
             switch followUp {
             case .closeWindow: self.window?.close()
-            case .quit: NSApp.terminate(nil)
+            case .quit:
+                self.lockApprovedWindow()
+                self.completeQuit(true)
             }
         }
     }
@@ -1325,8 +1153,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
     }
 
     private func syncWindowTitles() {
-        if tabs.indices.contains(selected) {
-            window?.title = tabs[selected].label
-        }
+        window?.title = tabs.indices.contains(selected) ? tabs[selected].label : "Boome"
     }
 }

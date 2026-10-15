@@ -192,6 +192,7 @@ final class GhosttyHost: NSObject {
     }
 
     func destroy(_ surface: Surface) {
+        guard surfaces[ObjectIdentifier(surface.view)] === surface else { return }
         let userdata = Unmanaged.passUnretained(surface.view).toOpaque()
         surfaces.removeValue(forKey: ObjectIdentifier(surface.view))
         byUserdata.removeValue(forKey: userdata)
@@ -208,11 +209,13 @@ final class GhosttyHost: NSObject {
     }
 
     func setSurfaceFocus(_ surface: Surface, focused: Bool) {
+        guard surfaces[ObjectIdentifier(surface.view)] === surface else { return }
         ghostty_surface_set_focus(surface.raw, focused)
     }
 
     /// `visible` is what the library's occlusion call expects.
     func setSurfaceVisible(_ surface: Surface, visible: Bool) {
+        guard surfaces[ObjectIdentifier(surface.view)] === surface else { return }
         ghostty_surface_set_occlusion(surface.raw, visible)
     }
 
@@ -231,6 +234,7 @@ final class GhosttyHost: NSObject {
     }
 
     func syncGeometry(_ surface: Surface) {
+        guard surfaces[ObjectIdentifier(surface.view)] === surface else { return }
         let view = surface.view
         guard let window = view.window ?? view.superview?.window else {
             let bounds = view.bounds
@@ -487,15 +491,18 @@ final class GhosttyHost: NSObject {
         case GHOSTTY_ACTION_QUIT:
             NSApp.terminate(nil)
             return true
-        case GHOSTTY_ACTION_NEW_TAB, GHOSTTY_ACTION_NEW_WINDOW:
-            delegate?.ghosttyHostOpenNewTab(self)
+        case GHOSTTY_ACTION_NEW_WINDOW:
+            delegate?.ghosttyHostOpenNewWindow(self)
+            return true
+        case GHOSTTY_ACTION_NEW_TAB:
+            delegate?.ghosttyHostOpenNewTab(self, from: surface)
             return true
         case GHOSTTY_ACTION_CLOSE_TAB, GHOSTTY_ACTION_CLOSE_WINDOW:
             switch LibraryActionRoute.close(tag: UInt32(action.tag.rawValue)) {
             case .tab:
-                delegate?.ghosttyHostCloseCurrentTab(self)
+                delegate?.ghosttyHostCloseCurrentTab(self, from: surface)
             case .window:
-                delegate?.ghosttyHostCloseWindow(self)
+                delegate?.ghosttyHostCloseWindow(self, from: surface)
             case nil:
                 return false
             }
@@ -514,7 +521,7 @@ final class GhosttyHost: NSObject {
                     return false
                 }
             }
-            delegate?.ghosttyHost(self, cycle: cycle)
+            delegate?.ghosttyHost(self, surface: surface, cycle: cycle)
             return true
         case GHOSTTY_ACTION_SET_TITLE:
             guard let surface, let title = cString(action.action.set_title.title) else { return false }
@@ -703,10 +710,11 @@ final class GhosttyHost: NSObject {
 }
 
 protocol GhosttyHostDelegate: AnyObject {
-    func ghosttyHostOpenNewTab(_ host: GhosttyHost)
-    func ghosttyHostCloseCurrentTab(_ host: GhosttyHost)
-    func ghosttyHostCloseWindow(_ host: GhosttyHost)
-    func ghosttyHost(_ host: GhosttyHost, cycle: GhosttyHost.Cycle)
+    func ghosttyHostOpenNewTab(_ host: GhosttyHost, from surface: GhosttyHost.Surface?)
+    func ghosttyHostOpenNewWindow(_ host: GhosttyHost)
+    func ghosttyHostCloseCurrentTab(_ host: GhosttyHost, from surface: GhosttyHost.Surface?)
+    func ghosttyHostCloseWindow(_ host: GhosttyHost, from surface: GhosttyHost.Surface?)
+    func ghosttyHost(_ host: GhosttyHost, surface: GhosttyHost.Surface?, cycle: GhosttyHost.Cycle)
     func ghosttyHost(_ host: GhosttyHost, surface: GhosttyHost.Surface, setTitle title: String)
     func ghosttyHost(_ host: GhosttyHost, surface: GhosttyHost.Surface, setTabTitle title: String)
     func ghosttyHost(_ host: GhosttyHost, surface: GhosttyHost.Surface, setWorkingDirectory path: String)

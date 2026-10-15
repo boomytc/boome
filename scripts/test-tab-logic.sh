@@ -16,6 +16,10 @@ swiftc \
   -framework AppKit \
   -o "$out" \
   "$root/src/TabLogic.swift" \
+  "$root/src/SessionArrangement.swift" \
+  "$root/src/SessionDragViews.swift" \
+  "$root/src/TabSidebar.swift" \
+  "$root/tests/SessionArrangementTests.swift" \
   "$root/src/BoomeChrome.swift" \
   "$root/src/ProjectTree.swift" \
   "$root/src/ProjectTextFile.swift" \

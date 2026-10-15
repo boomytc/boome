@@ -13,21 +13,21 @@ enum BoomeMain {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemValidation {
-    private var windowController: MainWindowController?
+    private let workspace = SessionWindowManager()
+    private var windowController: MainWindowController? { workspace.activeWindow }
     private var keyMonitor: Any?
     private var sidebarItem: NSMenuItem?
     private var explorerItem: NSMenuItem?
     private var editorItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        GhosttyHost.shared.delegate = workspace
         GhosttyHost.shared.start()
         BoomeChrome.installApplicationIcon()
         installMenu()
-        let controller = MainWindowController()
-        windowController = controller
-        controller.show()
+        let controller = workspace.newWindow(restoreFrame: true)
         NSRunningApplication.current.activate(options: [.activateAllWindows])
-        controller.window?.orderFrontRegardless()
+        controller?.window?.orderFrontRegardless()
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, event.keyCode == 48, event.modifierFlags.contains(.control) else {
                 return event
@@ -46,11 +46,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let windowController else { return .terminateNow }
-        if windowController.approveTermination() { return .terminateNow }
-        windowController.requestQuit()
-        if windowController.approveTermination() { return .terminateNow }
-        return .terminateCancel
+        if workspace.controllers.isEmpty { return .terminateNow }
+        let started = workspace.prepareToTerminate { allowed in sender.reply(toApplicationShouldTerminate: allowed) }
+        return started ? .terminateLater : .terminateCancel
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -64,6 +62,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     func applicationDidResignActive(_ notification: Notification) {
         GhosttyHost.shared.focusApp(false)
     }
+
+    @objc private func newWindow(_ sender: Any?) { workspace.newWindow() }
 
     @objc private func newTab(_ sender: Any?) {
         windowController?.newTab()
@@ -91,8 +91,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     @objc private func saveFile(_ sender: Any?) { windowController?.saveFile() }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if workspace.isPreparingTermination { return false }
+        if menuItem.action == #selector(newWindow(_:)) { return true }
         if menuItem.action == #selector(saveFile(_:)) { return windowController?.canSaveFile == true }
-        return true
+        return windowController != nil
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
@@ -118,6 +120,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         main.addItem(fileItem)
         let file = NSMenu(title: "File")
         fileItem.submenu = file
+        let newWindow = NSMenuItem(title: "New Window", action: #selector(newWindow(_:)), keyEquivalent: "n")
+        newWindow.target = self
+        file.addItem(newWindow)
+        file.addItem(.separator())
         let save = NSMenuItem(title: "Save", action: #selector(saveFile(_:)), keyEquivalent: "s")
         save.target = self
         file.addItem(save)
@@ -181,6 +187,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         windowItem.submenu = windowMenu
         windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.miniaturize(_:)), keyEquivalent: "m")
         windowMenu.addItem(withTitle: "Zoom", action: #selector(NSWindow.zoom(_:)), keyEquivalent: "")
+        let closeWindow = NSMenuItem(title: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        closeWindow.keyEquivalentModifierMask = [.command, .shift]
+        windowMenu.addItem(closeWindow)
         NSApp.windowsMenu = windowMenu
         NSApp.mainMenu = main
     }

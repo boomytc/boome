@@ -9,6 +9,7 @@ final class FileEditorView: NSView, NSTextViewDelegate {
     var onClose: (() -> Void)?
     private(set) var document: ProjectTextFile?
     private(set) var isBusy = false
+    private var interactionLocked = false
     var hasUnsavedChanges: Bool { document.map { $0.savedText != textView.string } ?? false }
     var isFocused: Bool { (window?.firstResponder as? NSView)?.isDescendant(of: self) == true }
 
@@ -113,8 +114,13 @@ final class FileEditorView: NSView, NSTextViewDelegate {
 
     func focus() { if document != nil { window?.makeFirstResponder(textView) } }
 
+    func setInteractionLocked(_ locked: Bool) {
+        interactionLocked = locked
+        updateChrome()
+    }
+
     func open(_ url: URL) {
-        guard !isBusy, !confirming else { return }
+        guard !interactionLocked, !isBusy, !confirming else { return }
         if document?.url == url { onShow?(); focus(); return }
         prepareToLeave { [weak self] allowed in
             guard allowed, let self else { return }
@@ -143,7 +149,7 @@ final class FileEditorView: NSView, NSTextViewDelegate {
     }
 
     func save(completion: @escaping (Bool) -> Void = { _ in }) {
-        guard !isBusy, let file = document else { completion(false); return }
+        guard !interactionLocked, !isBusy, let file = document else { completion(false); return }
         if !hasUnsavedChanges { completion(true); return }
         write(file, text: textView.string, overwrite: false, completion: completion)
     }
@@ -192,7 +198,7 @@ final class FileEditorView: NSView, NSTextViewDelegate {
     }
 
     func prepareToLeave(_ completion: @escaping (Bool) -> Void) {
-        guard !isBusy, !confirming else { completion(false); return }
+        guard !interactionLocked, !isBusy, !confirming else { completion(false); return }
         guard hasUnsavedChanges, let document else { completion(true); return }
         guard let window else { completion(false); return }
         let alert = NSAlert()
@@ -218,7 +224,7 @@ final class FileEditorView: NSView, NSTextViewDelegate {
     }
 
     @objc private func saveAction(_ sender: Any?) { save() }
-    @objc private func closeAction(_ sender: Any?) { onClose?() }
+    @objc private func closeAction(_ sender: Any?) { if !interactionLocked { onClose?() } }
 
     func textDidChange(_ notification: Notification) { updateChrome() }
     func textViewDidChangeSelection(_ notification: Notification) { updateStatus() }
@@ -226,9 +232,9 @@ final class FileEditorView: NSView, NSTextViewDelegate {
     private func updateChrome() {
         title.stringValue = document.map { (hasUnsavedChanges ? "● " : "") + $0.url.lastPathComponent } ?? "Editor"
         title.toolTip = document?.url.path
-        saveButton.isEnabled = document != nil && hasUnsavedChanges && !isBusy
-        closeButton.isEnabled = !isBusy
-        textView.isEditable = document != nil && !isBusy
+        saveButton.isEnabled = document != nil && hasUnsavedChanges && !isBusy && !interactionLocked
+        closeButton.isEnabled = !isBusy && !interactionLocked
+        textView.isEditable = document != nil && !isBusy && !interactionLocked
         scroll.isHidden = document == nil
         placeholder.isHidden = document != nil
         updateStatus()

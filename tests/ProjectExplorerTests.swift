@@ -122,6 +122,18 @@ enum ProjectExplorerTests {
             editorView.save { saved = $0 }
             check("the embedded editor save clears the dirty state", wait { saved && !editorView.hasUnsavedChanges })
             check("the embedded editor writes the displayed buffer", try String(contentsOf: file, encoding: .utf8) == "saved in editor\n")
+            editorView.setInteractionLocked(true)
+            check("a termination-approved editor becomes read-only", !text.isEditable)
+            editorView.open(crlf)
+            check("termination approval blocks opening another document", editorView.document?.url == file && !editorView.isBusy)
+            var lockedSave: Bool?
+            editorView.save { lockedSave = $0 }
+            check("termination approval rejects additional save commands", lockedSave == false)
+            var lockedLeave: Bool?
+            editorView.prepareToLeave { lockedLeave = $0 }
+            check("termination approval cannot be bypassed by closing the editor", lockedLeave == false)
+            editorView.setInteractionLocked(false)
+            check("cancelling another window's termination restores editing", text.isEditable && text.string == "saved in editor\n")
             text.string = "unsaved buffer"
             var allowed = true
             editorView.prepareToLeave { allowed = $0 }

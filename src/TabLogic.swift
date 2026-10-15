@@ -306,9 +306,9 @@ enum AppShortcut {
         let commandOnly = chord.command && !chord.option && !chord.shift && !chord.control
         let commandOption = chord.command && chord.option && !chord.shift && !chord.control
         let commandShift = chord.command && !chord.option && chord.shift && !chord.control
-        if commandOnly && (key == "t" || key == "w" || key == "q" || key == "s") { return true }
+        if commandOnly && (key == "t" || key == "w" || key == "q" || key == "s" || key == "n") { return true }
         if commandOption && (key == "s" || key == "e") { return true }
-        if commandShift && (key == "[" || key == "]") { return true }
+        if commandShift && (key == "[" || key == "]" || key == "w") { return true }
         if chord.control && chord.keyCode == 48 { return true }
         return false
     }

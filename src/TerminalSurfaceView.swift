@@ -21,12 +21,28 @@ final class TerminalSurfaceView: NSView, NSTextInputClient {
         self.surface = surface
     }
 
+    func releaseSurface() {
+        guard let surface else { return }
+        self.surface = nil
+        host.destroy(surface)
+    }
+
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not used")
     }
 
-    override var acceptsFirstResponder: Bool { !isHidden }
+    override var acceptsFirstResponder: Bool { !isHidden && surface != nil }
+
+    override func becomeFirstResponder() -> Bool {
+        focusSurface(true)
+        return true
+    }
+
+    override func resignFirstResponder() -> Bool {
+        focusSurface(false)
+        return true
+    }
     override var isFlipped: Bool { false }
 
     func noteCursor(_ style: GhosttyHost.CursorStyle) {
@@ -42,10 +58,12 @@ final class TerminalSurfaceView: NSView, NSTextInputClient {
     }
 
     func focusSurface(_ focused: Bool) {
-        host.setSurfaceFocus(surface, focused: focused)
+        guard let surface else { return }
+        host.setSurfaceFocus(surface, focused: focused && window?.isKeyWindow == true)
     }
 
     func showSurface(_ visible: Bool) {
+        guard let surface else { return }
         isHidden = !visible
         host.setSurfaceVisible(surface, visible: visible)
         if visible {
@@ -66,22 +84,21 @@ final class TerminalSurfaceView: NSView, NSTextInputClient {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         trackScreen()
-        host.syncGeometry(surface)
-        if window != nil, !isHidden {
-            host.setSurfaceVisible(surface, visible: true)
-        }
+        guard let surface, window != nil else { return }
+        host.noteScreenChange(surface)
+        if !isHidden { host.setSurfaceVisible(surface, visible: true) }
     }
 
     override func layout() {
         super.layout()
-        host.syncGeometry(surface)
+        if let surface { host.syncGeometry(surface) }
     }
 
     /// Scale changes on the current display. A move onto another display
     /// with the same scale does not come through here.
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        host.syncGeometry(surface)
+        if let surface { host.syncGeometry(surface) }
     }
 
     private func trackScreen() {
