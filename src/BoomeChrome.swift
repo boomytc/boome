@@ -90,3 +90,35 @@ enum BoomeChrome {
     }()
 
 }
+
+/// Presentation only: dragging the session name should move the window,
+/// not open a second tab picker or start text selection.
+final class SessionTitleLabel: NSTextField {
+    override var mouseDownCanMoveWindow: Bool { true }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        isEditable = false
+        isSelectable = false
+        isBezeled = false
+        isBordered = false
+        drawsBackground = false
+        alignment = .left
+        lineBreakMode = .byTruncatingTail
+        maximumNumberOfLines = 1
+        font = .systemFont(ofSize: 13, weight: .medium)
+        setAccessibilityRole(.staticText)
+        setAccessibilityIdentifier("CurrentSessionTitle")
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not used")
+    }
+
+    func show(_ title: String) {
+        stringValue = title
+        toolTip = title
+        setAccessibilityLabel(title)
+    }
+}

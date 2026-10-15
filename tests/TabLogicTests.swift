@@ -13,6 +13,7 @@ enum TabLogicTests {
         closeActions()
         presentation()
         fills()
+        sessionTitle()
         pulse()
         shortcuts()
         if failed != 0 {
@@ -390,6 +391,34 @@ enum TabLogicTests {
     static func strength(_ color: NSColor) -> CGFloat {
         let rgb = color.usingColorSpace(.sRGB) ?? color
         return rgb.alphaComponent
+    }
+
+    static func sessionTitle() {
+        _ = NSApplication.shared
+        let label = SessionTitleLabel(frame: NSRect(x: 0, y: 0, width: 280, height: 22))
+        check(
+            "session title is display-only",
+            !label.isEditable && !label.isSelectable && !label.acceptsFirstResponder
+        )
+        check("session title allows window dragging", label.mouseDownCanMoveWindow)
+        check(
+            "session title has no selection action or menu",
+            label.target == nil && label.action == nil && label.menu == nil
+        )
+        check("session title is accessible as static text", label.accessibilityRole() == .staticText)
+        let title = "user@example-remote:/a/very/long/path/to/the/current/session"
+        label.show(title)
+        check(
+            "session title truncates visually but keeps the full tooltip",
+            label.lineBreakMode == .byTruncatingTail && label.maximumNumberOfLines == 1
+                && label.stringValue == title && label.toolTip == title
+        )
+        label.show("Another session")
+        check(
+            "session title and tooltip follow the active session",
+            label.stringValue == "Another session" && label.toolTip == "Another session"
+                && label.accessibilityLabel() == "Another session"
+        )
     }
 
     static func pulse() {

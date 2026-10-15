@@ -399,15 +399,6 @@ private final class QuietAddButton: NSView {
     }
 }
 
-/// Title-bar tab name. A normal button's mouseUp does not arrive here.
-private final class TabListButton: NSButton {
-    override var mouseDownCanMoveWindow: Bool { false }
-
-    override func mouseDown(with event: NSEvent) {
-        sendAction(action, to: target)
-    }
-}
-
 /// Title-bar control for the sidebar. The glyph stays `sidebar.left`.
 /// The label follows the window's existing collapsed bit.
 private final class SidebarToggleButton: NSView {
@@ -717,7 +708,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
     private let host = GhosttyHost.shared
     private let sidebar = TabSidebar()
     private let sidebarToggle = SidebarToggleButton(frame: NSRect(x: 0, y: 0, width: 28, height: 28))
-    private let tabListButton = TabListButton()
+    private let sessionTitle = SessionTitleLabel(frame: .zero)
     private let terminalHost = NSView()
     private let separator = NSView()
     private var sidebarWidth: NSLayoutConstraint!
@@ -948,21 +939,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
             self?.toggleSidebar()
         }
         titlebar.addSubview(sidebarToggle)
-        tabListButton.bezelStyle = .shadowlessSquare
-        tabListButton.isBordered = false
-        tabListButton.imagePosition = .imageLeft
-        tabListButton.imageHugsTitle = true
-        tabListButton.alignment = .left
-        tabListButton.lineBreakMode = .byTruncatingTail
-        tabListButton.font = .systemFont(ofSize: 13, weight: .medium)
-        tabListButton.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "标签")
-        tabListButton.image?.isTemplate = true
-        tabListButton.toolTip = "标签"
-        tabListButton.setAccessibilityLabel("标签")
-        tabListButton.target = self
-        tabListButton.action = #selector(showTabList(_:))
-        tabListButton.isHidden = true
-        titlebar.addSubview(tabListButton)
+        sessionTitle.isHidden = true
+        titlebar.addSubview(sessionTitle)
         zoom.postsFrameChangedNotifications = true
         NotificationCenter.default.addObserver(
             self,
@@ -985,9 +963,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
             width: side,
             height: side
         )
-        let showList = placement == .vertical && sidebarCollapsed
-        tabListButton.isHidden = !showList
-        tabListButton.frame = NSRect(
+        let showTitle = placement == .vertical && sidebarCollapsed
+        sessionTitle.isHidden = !showTitle
+        sessionTitle.frame = NSRect(
             x: (sidebarToggle.frame.maxX + 8).rounded(),
             y: (sidebarToggle.frame.midY - 11).rounded(),
             width: 280,
@@ -1019,28 +997,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         stored.set(sidebarCollapsed, forKey: ChromeMemory.collapsedKey)
     }
 
-    @objc private func showTabList(_ sender: NSButton) {
-        let rows = TabPresentation.disambiguate(
-            tabs.map { TabPresentation.make(label: $0.label, customTitle: $0.tabTitle != nil) }
-        )
-        let menu = NSMenu()
-        for (index, row) in rows.enumerated() {
-            let title = row.secondary.map { "\(row.primary) — \($0)" } ?? row.primary
-            let item = NSMenuItem(title: title, action: #selector(selectListedTab(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = index
-            item.state = index == selected ? .on : .off
-            menu.addItem(item)
-        }
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height), in: sender)
-        focusSelected()
-    }
-
-    @objc private func selectListedTab(_ sender: NSMenuItem) {
-        guard let index = sender.representedObject as? Int else { return }
-        select(index)
-    }
-
     private func syncSidebarToggle() {
         sidebarToggle.note(collapsed: isSidebarCollapsed)
     }
@@ -1054,10 +1010,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         separator.layer?.backgroundColor = BoomeChrome.hairline(on: background).cgColor
         sidebar.use(background: background)
         sidebarToggle.use(background: background)
-        tabListButton.contentTintColor = BoomeChrome.text(selected: true, on: background)
+        sessionTitle.textColor = BoomeChrome.text(selected: true, on: background)
         window?.titleVisibility = .hidden
         window?.titlebarAppearsTransparent = true
-        syncTabListTitle()
+        syncSessionTitle()
         window?.tabbingMode = .disallowed
     }
 
@@ -1401,24 +1357,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         if tabs.indices.contains(selected) {
             window?.title = tabs[selected].label
         }
-        syncTabListTitle()
+        syncSessionTitle()
     }
 
-    /// The system title is hidden so it does not paint over the sidebar
-    /// button. While the sidebar is folded, this control is the tab name
-    /// and the menu that selects another tab.
-    private func syncTabListTitle() {
+    /// The system title stays hidden to avoid the sidebar button. The
+    /// folded layout shows the session name without adding a tab picker.
+    private func syncSessionTitle() {
         guard placement == .vertical, sidebarCollapsed, tabs.indices.contains(selected) else { return }
-        let title = tabs[selected].label
-        let color = BoomeChrome.text(selected: true, on: host.terminalBackground())
-        tabListButton.attributedTitle = NSAttributedString(
-            string: title,
-            attributes: [
-                .foregroundColor: color,
-                .font: NSFont.systemFont(ofSize: 13, weight: .medium),
-            ]
-        )
-        tabListButton.toolTip = title
-        tabListButton.setAccessibilityLabel(title)
+        sessionTitle.show(tabs[selected].label)
     }
 }
