@@ -9,7 +9,7 @@ macOS 终端。窗口左侧是 Boome 自己画的垂直标签栏。每个标签�
 | | |
 | --- | --- |
 | 核心源码来源 | Ghostty `v1.3.1`，`332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28` |
-| Boome 核心版本 | `1.3.1-boome.1` |
+| Boome 核心版本 | `1.3.1-boome.2` |
 | 上游已处理终点 | `a2e440396403385680008e456a741a7776091412` |
 | Zig | `0.15.2` |
 
@@ -56,7 +56,12 @@ Swift 回归与构建支持回归从根目录执行：
 ```bash
 ./scripts/test-tab-logic.sh
 python3 -m unittest discover -s tests -p test_core_build.py
+python3 -m unittest discover -s tests -p test_command_input_zsh.py
 ./scripts/test-core-runtime.sh
+# 可选：会激活隔离测试窗口并发送鼠标／键盘事件，需输入控制权限
+BOOME_INPUT_UI_SMOKE=1 ./scripts/test-core-runtime.sh
+# 非 zsh 的透明回退
+BOOME_INPUT_FALLBACK_SMOKE=1 BOOME_TEST_SHELL=/bin/bash ./scripts/test-core-runtime.sh
 ```
 
 运行时检查需要至少一块唤醒的显示器，使用独立应用标识、禁用默认配置和临时 HOME，直接调用真实 libghostty／AppKit 的会话迁移、编辑和退出确认接口，不代表物理鼠标拖拽或跨屏验收。
@@ -88,8 +93,10 @@ Swift + AppKit。生产代码的 `ghostty_*` 调用都在 `src/GhosttyHost.swift
 - 切标签只显示和隐藏 surface，不销毁，也不停里面的 shell。终端获得焦点时，键盘、鼠标、滚动、选区、剪贴板交给当前可见的 surface；文件树和编辑器使用原生 AppKit 的输入、选区与剪贴板。
 - 新建、切换、关闭会话都针对当前窗口；关闭一扇窗口不会停止其他窗口的终端。退出应用时逐窗检查运行中程序和未保存内容；已确认退出的窗口暂时停止接受新输入，任一确认取消后恢复，避免等待其他窗口确认时新增编辑被丢弃。
 - 每个标签只有一个 surface。没有分屏。
+- 支持的本地 zsh 在提示符编辑态显示原生命令输入框：单击定位、拖选、Shift 扩选、双击词、三击行、选区替换、撤销／重做和 Unicode 输入均由 NSTextView 处理。Enter 执行、Shift/Option+Enter 换行，输入法候选确认不会直接提交。多行粘贴先进入草稿；首／末视觉行的上下键调用 zsh 历史，软换行中间仍是光标移动。Tab 和 Ctrl+R 将完整草稿交回 shell 进行原生补全或历史搜索；Esc / Terminal 同样交回，点击 Edit command 可恢复原生编辑。输入框、选区、撤销管理器属于会话，跨窗口搬运不会重建。
+- 首版不接管 bash、远程 shell、REPL、密码提示或交互程序自己的输入框；未建立 zsh 握手、关闭 shell integration、自定义不支持的 keymap 或 exec 后失去集成时，保留普通终端。Native 与 shell 缓冲发生冲突会保留草稿，需明确选择 Use draft（仅重新确认基线，不执行）或 Use shell（放弃原生草稿）。关标签／窗口及退出时，未提交的非空草稿也纳入关闭确认。草稿不跨应用重启恢复。
 - 字体、字号、主题色不另写配置。`ghostty_config_load_default_files` 读 `~/.config/ghostty/config`（以及库自己还会读的那些默认路径）。把窗口拖到另一块显示器时，窗口和字体的逻辑尺寸不变。渲染缓冲按那块屏幕的 1× 或 2× 重配，垂直同步改跟那块屏幕的刷新率。倍率相同也会更新显示器，不靠重新布局来触发。
-- 资源按 Ghostty macOS 应用的摆法放进 bundle：`Contents/Resources/ghostty` 和 `Contents/Resources/terminfo`。库靠 `terminfo/78/xterm-ghostty` 找到资源目录，再把 `TERMINFO` 指到旁边的 terminfo，shell integration 从 `ghostty/shell-integration` 注入。`share/` 下其余文件（补全、man、主题）一并复制。缺 terminfo 哨兵或缺 shell integration 目录时，构建直接失败，不悄悄跳过。
+- 启动时将 GHOSTTY_RESOURCES_DIR 和 TERMINFO 固定到自身 bundle，清除继承的 GHOSTTY_BIN_DIR，避免从其他终端启动时误用其安装目录。资源按 Ghostty macOS 应用的摆法放进 bundle：`Contents/Resources/ghostty` 和 `Contents/Resources/terminfo`。库靠 `terminfo/78/xterm-ghostty` 找到资源目录，再把 `TERMINFO` 指到旁边的 terminfo，shell integration 从 `ghostty/shell-integration` 注入。`share/` 下其余文件（补全、man、主题）一并复制。缺 terminfo 哨兵或缺 shell integration 目录时，构建直接失败，不悄悄跳过。
 
 新标签的工作目录来自 `ghostty_surface_inherited_config(..., GHOSTTY_SURFACE_CONTEXT_TAB)` 的 `working_directory`。那是库从当前 surface 记下的目录（shell integration 的 OSC 7），并且还要 Ghostty 配置里的 `tab-inherit-working-directory` 开着（默认开着）。库给不出路径时用家目录。Boome 不解析 shell 提示符。
 
@@ -145,3 +152,13 @@ Swift + AppKit。生产代码的 `ghostty_*` 调用都在 `src/GhosttyHost.swift
 提交前修正根 `build/` 忽略规则会漏掉 `core/src/build/` 的问题，改为 `/build/` 并补仓库布局回归；核验 940 个核心源文件与资源的暂存字节和执行权限完整。另从暂存区导出路径含空格、没有 `.git` 或 `vendor`、空 `build` 的源码副本并完成构建；复用了已校验的全局依赖缓存，不将此描述为完全无缓存的联网引导。运行时初次检查遇到两块显示器均休眠、CoreVideo 无活动显示器的环境失败；唤醒后完整重测通过，测试入口已补活动显示器前置检查，未更改显示器分辨率或布局。
 
 本轮运行时检查直接调用迁移与确认 API，不计作物理鼠标拖拽、fzf 点击、拖窗或跨屏实测；这些项目未在本轮重新验收。
+
+### 2026-10-15：原生命令输入
+
+参考 Warp 将输入视为独立文本编辑器的模型，以 AppKit NSTextView 自行实现定位、拖选、扩选、多行和撤销，未迁入 Warp 代码。zsh 通过私有目录、FIFO 与 ZLE hooks 发布真实缓冲区及提示符代次；原生草稿不会逐字注入 PTY。提交先校验版本和期限，安装该请求的确认键，再发送确认。过期、冲突、取消均不自动执行，已暂存到 ZLE 的提交取消时还原原 shell 缓冲。提交、补全与增量历史搜索均经正常 ZLE widget 执行；搜索后回车可直接执行，不需额外按键。补全／增量历史搜索期间暂停原生接管。目录事件通知驱动正常握手，定时器仅作失败与超时兜底。提交前再次读取 shell 状态时仍校验原始草稿基线，不静默换成新版本；从 shell 历史载入的非空待执行命令同样纳入关闭确认。
+
+修正按下／抬起前的鼠标坐标同步；运行时资源固定到 Boome 自己的 bundle，验证时即使父环境指向无效 Ghostty 路径也可以启动和回退。核心版本为 `1.3.1-boome.2`，已重编并链接应用。
+
+本轮通过：252 项 Swift 检查；34 项 Python 检查（20 项构建支持、14 项真实 zsh／PTY 协议）；257 项核心定向检查；45 项真实库／控制器运行时检查；17 项真实窗口 CGEvent 交互检查；3 项 bash 回退检查。运行时覆盖原 shell PID／变量、Unicode 提交、运行程序输入不被截获、跨窗携带命令草稿／选区／独立撤销管理器、文件编辑缓冲独立，以及退出批准／取消。实窗检查覆盖自动焦点、点击定位、拖选、替换、撤销、双击词、三击行、Shift 扩选、Unicode 粘贴、Shift+Enter 换行和点击 Run 后恢复输入。
+
+输入法预编辑防误提交和关闭保护由 AppKit 接口检查覆盖；未将 Unicode 粘贴说成中文拼音候选全流程实测。没有重做跨屏、物理鼠标连续跨窗拖拽、fzf／vim 或任意 zsh 插件组合的人工验收。保留非 zsh、远程和应用自身输入的普通终端路径；不提供跨应用重启的命令草稿恢复。

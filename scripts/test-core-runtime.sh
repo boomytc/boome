@@ -27,11 +27,11 @@ for framework in "${frameworks[@]}"; do args+=(-framework "$framework"); done
 swiftc -swift-version 5 -O -parse-as-library -target arm64-apple-macos13.0 \
   -sdk "$sdk" -I "$headers" -Xcc "-fmodule-map-file=$headers/module.modulemap" \
   "${args[@]}" -lc++ -Xlinker -force_load -Xlinker "$root/build/core/lib/libghostty.a" \
-  "${sources[@]}" "$root/tests/CoreRuntimeTests.swift" \
+  "${sources[@]}" "$root/tests/CoreRuntimeTests.swift" "$root/tests/CommandInputUITests.swift" \
   -o "$app/Contents/MacOS/BoomeCoreRuntimeTests"
 # Isolated config and HOME prevent user shell profiles from entering the fixture.
 home="$(mktemp -d "${TMPDIR:-/tmp}/boome-core-runtime-home.XXXXXX")"
 trap 'rm -rf "$home"' EXIT
 HOME="$home" ZDOTDIR="$home" XDG_CONFIG_HOME="$home/config" \
   "$app/Contents/MacOS/BoomeCoreRuntimeTests" \
-  --config-default-files=false --command=/bin/zsh
+  --config-default-files=false --command="${BOOME_TEST_SHELL:-/bin/zsh}"

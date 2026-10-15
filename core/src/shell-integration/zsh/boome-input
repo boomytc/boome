@@ -1,0 +1,179 @@
+# Command buffers use a private mailbox. Submission requires an armed ZLE-only keymap.
+_boome_input_install() {
+    builtin emulate -L zsh -o no_aliases -o no_warn_create_global
+    [[ -o interactive && -o multibyte && -n $BOOME_INPUT_DIR ]] || builtin return
+    (( ! ${+_boome_input_dir} )) || builtin return
+    [[ -d $BOOME_INPUT_DIR && ! -L $BOOME_INPUT_DIR &&
+       -p $BOOME_INPUT_DIR/notify && ! -L $BOOME_INPUT_DIR/notify &&
+       -f $BOOME_INPUT_DIR/token && ! -L $BOOME_INPUT_DIR/token ]] || builtin return
+    builtin zmodload zsh/system && builtin zmodload zsh/files &&
+        builtin zmodload zsh/datetime || builtin return
+    builtin autoload -Uz add-zle-hook-widget
+    builtin typeset -g _boome_input_dir=$BOOME_INPUT_DIR
+    builtin unset BOOME_INPUT_DIR
+    builtin typeset -g _boome_input_token="$(<$_boome_input_dir/token)"
+    builtin typeset -g _boome_input_generation="${EPOCHREALTIME}_${RANDOM}"
+    builtin typeset -gi _boome_input_epoch=0 _boome_input_revision=0 _boome_input_suspended=0 _boome_input_search_active=0
+    builtin typeset -g _boome_input_previous= _boome_input_ack= _boome_input_result=
+    builtin typeset -gi _boome_input_fd
+    builtin sysopen -r -w -o nonblock,cloexec -u _boome_input_fd -- "$_boome_input_dir/notify" || builtin return
+    builtin typeset -g _boome_input_saved_keymap= _boome_input_commit_key= _boome_input_saved_buffer= _boome_input_action=
+    builtin typeset -gi _boome_input_saved_cursor=0
+    builtin zle -N _boome_input_commit
+    builtin zle -N _boome_input_receive
+    builtin zle -F -w $_boome_input_fd _boome_input_receive
+    add-zle-hook-widget line-init _boome_input_begin
+    add-zle-hook-widget line-pre-redraw _boome_input_redraw
+    add-zle-hook-widget line-finish _boome_input_finish
+    add-zle-hook-widget keymap-select _boome_input_redraw
+    add-zle-hook-widget isearch-update _boome_input_searching
+    add-zle-hook-widget isearch-exit _boome_input_search_end
+    builtin typeset -ag preexec_functions
+    preexec_functions+=(_boome_input_finish)
+}
+
+_boome_input_publish() {
+    builtin emulate -L zsh -o no_aliases -o no_warn_create_global
+    builtin local state=$1 current fd buffer=${BUFFER-} cursor=${CURSOR:-0} keymap=${KEYMAP-} context=${CONTEXT-}
+    [[ -d $_boome_input_dir ]] || builtin return
+    if [[ $state == ready && $KEYMAP == _boome_input_transaction ]]; then
+        state=armed
+    elif [[ $state == ready && ( $_boome_input_suspended == 1 || $_boome_input_search_active == 1 ||
+            $CONTEXT != (start|cont) || $KEYMAP != (main|emacs|viins) ) ]]; then
+        state=unsupported
+    fi
+    current="${state}:${buffer}:${cursor}:${keymap}:${context}:${_boome_input_epoch}:${_boome_input_ack}:${_boome_input_result}"
+    [[ $current != $_boome_input_previous ]] || builtin return
+    _boome_input_previous=$current
+    (( ++_boome_input_revision ))
+    builtin sysopen -w -o creat,trunc,cloexec -m 600 -u fd -- "$_boome_input_dir/.state" || builtin return
+    builtin printf '%s\0' BOOME1 "$_boome_input_token" "$$" "$_boome_input_generation" \
+        "$_boome_input_epoch" "$_boome_input_revision" "$state" "$buffer" "$cursor" \
+        "$keymap" "$context" "$_boome_input_ack" "$_boome_input_result" >&$fd
+    builtin exec {fd}>&-
+    builtin zf_mv -f -- "$_boome_input_dir/.state" "$_boome_input_dir/state"
+}
+
+_boome_input_begin() {
+    (( ++_boome_input_epoch ))
+    _boome_input_publish ready
+}
+_boome_input_redraw() { _boome_input_publish ready }
+_boome_input_searching() { _boome_input_search_active=1; _boome_input_publish ready }
+_boome_input_search_end() { _boome_input_search_active=0; _boome_input_publish ready }
+_boome_input_finish() {
+    if [[ $_boome_input_result == armed ]]; then
+        _boome_input_restore abort
+        _boome_input_result=rejected
+    fi
+    _boome_input_publish busy
+}
+
+_boome_input_receive() {
+    builtin emulate -L zsh -o no_aliases -o no_warn_create_global
+    builtin local drained fd value
+    builtin local -a fields
+    builtin sysread -i $_boome_input_fd -s 4096 drained 2>/dev/null
+    [[ -f $_boome_input_dir/request && ! -L $_boome_input_dir/request ]] || builtin return
+    builtin sysopen -r -o cloexec -u fd -- "$_boome_input_dir/request" || builtin return
+    while IFS= builtin read -r -d '' -u $fd value; do
+        fields+=("$value")
+        (( ${#fields} <= 10 )) || builtin break
+    done
+    builtin exec {fd}<&-
+    (( ${#fields} == 10 )) || builtin return
+    [[ ${fields[1]} == BOOME1 && ${fields[2]} == $_boome_input_token ]] || builtin return
+    if [[ ${fields[7]} == abort && ${fields[6]} == $_boome_input_ack &&
+          $_boome_input_result == armed && $KEYMAP == _boome_input_transaction ]]; then
+        _boome_input_restore abort
+        _boome_input_result=rejected
+        _boome_input_publish ready
+        builtin return
+    fi
+    [[ ${fields[6]} != $_boome_input_ack && -n ${fields[6]} &&
+       ${fields[6]} != *[^0-9A-Fa-f-]* ]] || builtin return
+    # Capture any shell-side edit that happened since the app's last snapshot.
+    _boome_input_publish ready
+    builtin local valid=1
+    [[ ${fields[3]} == $_boome_input_generation &&
+       ${fields[4]} == $_boome_input_epoch &&
+       ${fields[5]} == $_boome_input_revision &&
+       $CONTEXT == (start|cont) && $KEYMAP == (main|emacs|viins) &&
+       $_boome_input_suspended == 0 && $_boome_input_search_active == 0 ]] || valid=0
+    [[ ${fields[8]} == <-> && ${fields[10]} == <-> ]] || valid=0
+    (( valid && fields[8] >= EPOCHSECONDS && fields[8] <= EPOCHSECONDS + 10 &&
+       fields[10] <= ${#fields[9]} )) || valid=0
+    [[ ${fields[7]} == (submit|terminal|complete|search|previous|next|cancel) ]] || valid=0
+    _boome_input_ack=${fields[6]}
+    _boome_input_result=rejected
+    if (( ! valid )); then
+        _boome_input_publish ready
+        builtin return
+    fi
+    if [[ ${fields[7]} == (submit|complete|search) ]]; then
+        _boome_input_saved_buffer=$BUFFER
+        _boome_input_saved_cursor=$CURSOR
+        _boome_input_action=${fields[7]}
+    fi
+    BUFFER=${fields[9]}
+    CURSOR=${fields[10]}
+    if [[ ${fields[7]} == (submit|complete|search) ]]; then
+        _boome_input_result=armed
+    else
+        _boome_input_result=accepted
+    fi
+    builtin zf_rm -f -- "$_boome_input_dir/request"
+    case ${fields[7]} in
+        submit|complete|search)
+            # zsh 5.9 cannot finish its current read from an FD widget. Hold
+            # ZLE in an empty keymap until the app sends this request's commit
+            # key. Ordinary input cannot start a program during this handshake.
+            _boome_input_saved_keymap=$KEYMAP
+            _boome_input_commit_key=$'\e[99;'"${fields[6]}"'~'
+            # getkeycmd may already hold the old keymap while waiting for FD
+            # events. The first commit key must be valid in that map as well.
+            builtin bindkey -M $_boome_input_saved_keymap "$_boome_input_commit_key" _boome_input_commit
+            builtin bindkey -N _boome_input_transaction
+            builtin bindkey -M _boome_input_transaction "$_boome_input_commit_key" _boome_input_commit
+            builtin zle -K _boome_input_transaction
+            _boome_input_result=armed
+            _boome_input_publish armed
+            ;;
+        previous) builtin zle up-line-or-history; _boome_input_publish ready ;;
+        next) builtin zle down-line-or-history; _boome_input_publish ready ;;
+        cancel) BUFFER=; CURSOR=0; _boome_input_publish ready ;;
+        terminal) _boome_input_publish ready ;;
+    esac
+    builtin zle -R
+}
+
+_boome_input_restore() {
+    [[ $KEYMAP == _boome_input_transaction ]] && builtin zle -K $_boome_input_saved_keymap
+    builtin bindkey -M $_boome_input_saved_keymap -r "$_boome_input_commit_key"
+    builtin bindkey -D _boome_input_transaction
+    if [[ ${1-} == abort ]]; then
+        BUFFER=$_boome_input_saved_buffer
+        CURSOR=$_boome_input_saved_cursor
+    fi
+    _boome_input_saved_buffer=
+}
+
+_boome_input_commit() {
+    [[ $_boome_input_action != submit ]] && _boome_input_suspended=1
+    _boome_input_restore
+    _boome_input_result=accepted
+    if [[ $_boome_input_action == submit ]]; then
+        _boome_input_publish busy
+        builtin zle accept-line
+    else
+        _boome_input_publish ready
+        case $_boome_input_action in
+            complete) builtin zle expand-or-complete ;;
+            search) builtin zle history-incremental-search-backward ;;
+        esac
+        _boome_input_suspended=0
+        _boome_input_publish ready
+    fi
+}
+
+_boome_input_install

@@ -146,31 +146,38 @@ final class TerminalSurfaceView: NSView, NSTextInputClient {
     }
 
     override func mouseDown(with event: NSEvent) {
+        guard surface?.commandInput?.pending == nil else { return }
         window?.makeFirstResponder(self)
+        sendPosition(event)
         _ = host.sendMouseButton(surface, pressed: true, button: 0, modifiers: event.modifierFlags)
     }
 
     override func mouseUp(with event: NSEvent) {
+        sendPosition(event)
         _ = host.sendMouseButton(surface, pressed: false, button: 0, modifiers: event.modifierFlags)
     }
 
     override func rightMouseDown(with event: NSEvent) {
+        sendPosition(event)
         if !host.sendMouseButton(surface, pressed: true, button: 1, modifiers: event.modifierFlags) {
             super.rightMouseDown(with: event)
         }
     }
 
     override func rightMouseUp(with event: NSEvent) {
+        sendPosition(event)
         if !host.sendMouseButton(surface, pressed: false, button: 1, modifiers: event.modifierFlags) {
             super.rightMouseUp(with: event)
         }
     }
 
     override func otherMouseDown(with event: NSEvent) {
+        sendPosition(event)
         _ = host.sendMouseButton(surface, pressed: true, button: event.buttonNumber, modifiers: event.modifierFlags)
     }
 
     override func otherMouseUp(with event: NSEvent) {
+        sendPosition(event)
         _ = host.sendMouseButton(surface, pressed: false, button: event.buttonNumber, modifiers: event.modifierFlags)
     }
 
@@ -222,6 +229,7 @@ final class TerminalSurfaceView: NSView, NSTextInputClient {
     }
 
     override func keyDown(with event: NSEvent) {
+        guard surface?.commandInput?.pending == nil else { return }
         let translated = host.translatedModifiers(for: surface, flags: event.modifierFlags)
         let source = eventByApplying(translated, to: event)
         collecting = true
@@ -263,6 +271,7 @@ final class TerminalSurfaceView: NSView, NSTextInputClient {
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard event.type == .keyDown, window?.firstResponder === self else { return false }
+        if surface?.commandInput?.pending != nil { return true }
         if Self.isAppShortcut(event) { return false }
         let action: GhosttyHost.KeyAction = event.isARepeat ? .repeat : .press
         let translated = host.translatedModifiers(for: surface, flags: event.modifierFlags)
@@ -277,10 +286,12 @@ final class TerminalSurfaceView: NSView, NSTextInputClient {
     }
 
     @objc func paste(_ sender: Any?) {
+        guard surface?.commandInput?.pending == nil else { return }
         _ = host.performBinding(surface, "paste_from_clipboard")
     }
 
     @objc func pasteAsPlainText(_ sender: Any?) {
+        guard surface?.commandInput?.pending == nil else { return }
         _ = host.performBinding(surface, "paste_from_clipboard")
     }
 

@@ -68,6 +68,7 @@ if [[ "$rebuild_lib" == 1 || ! -f "$lib" || ! -f "$headers/ghostty.h" ||
       ! -f "$headers/module.modulemap" || ! -f "$stamp" ||
       ! -e "$share/terminfo/78/xterm-ghostty" ||
       ! -d "$share/ghostty/shell-integration" ||
+      ! -f "$share/ghostty/shell-integration/zsh/boome-input" ||
       "$cached_fingerprint" != "$fingerprint" ]]; then
   ZIG="$zig" "$root/scripts/prefetch-ghostty-deps.sh"
   # Remove only our generated install prefix, never core sources.
@@ -217,6 +218,9 @@ swiftc \
   "$root/src/ProjectExplorerView.swift" \
   "$root/src/FileEditorView.swift" \
   "$root/src/GhosttyHost.swift" \
+  "$root/src/CommandInputProtocol.swift" \
+  "$root/src/CommandInputView.swift" \
+  "$root/src/TerminalSessionView.swift" \
   "$root/src/TerminalSurfaceView.swift" \
   "$root/src/MainWindowController.swift"
 

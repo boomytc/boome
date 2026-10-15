@@ -39,6 +39,7 @@ final class TerminalTab {
     let id: TabID
     var ordinal: Int { id.raw }
     let view: TerminalSurfaceView
+    let content: TerminalSessionView
     var terminalTitle = ""
     var tabTitle: String?
     var workingDirectory: String?
@@ -53,6 +54,7 @@ final class TerminalTab {
     init(id: TabID, view: TerminalSurfaceView) {
         self.id = id
         self.view = view
+        self.content = TerminalSessionView(terminal: view)
     }
 
     var label: String {
@@ -273,8 +275,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         let ids = Set(next.ids)
         let pool = Dictionary(uniqueKeysWithValues: (tabs + incoming).map { ($0.id, $0) })
         for tab in tabs where !ids.contains(tab.id) {
+            tab.content.isHidden = true
             tab.view.showSurface(false)
-            tab.view.removeFromSuperview()
+            tab.content.removeFromSuperview()
         }
         for tab in incoming { install(tab) }
         tabs = next.ids.compactMap { pool[$0] }
@@ -334,6 +337,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         allowWindowClose = false
         (window as? SessionWindow)?.isInputLocked = false
         fileEditor.setInteractionLocked(false)
+        for tab in tabs { tab.content.input?.setInteractionLocked(false) }
         if let terminationFirstResponder { window?.makeFirstResponder(terminationFirstResponder) }
         terminationFirstResponder = nil
     }
@@ -341,6 +345,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
     private func lockApprovedWindow() {
         terminationFirstResponder = window?.firstResponder
         fileEditor.setInteractionLocked(true)
+        for tab in tabs { tab.content.input?.setInteractionLocked(true) }
         (window as? SessionWindow)?.isInputLocked = true
         window?.makeFirstResponder(nil)
     }
@@ -698,6 +703,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         explorerSeparator.layer?.backgroundColor = BoomeChrome.hairline(on: background).cgColor
         editorSeparator.layer?.backgroundColor = BoomeChrome.hairline(on: background).cgColor
         fileEditor.use(background: background)
+        for tab in tabs { tab.content.input?.use(background: background) }
         sidebar.use(background: background)
         projectExplorer.use(background: background)
         sidebarToggle.use(background: background)
@@ -726,7 +732,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func install(_ tab: TerminalTab) {
-        let view = tab.view
+        let view = tab.content
+        view.input?.use(background: host.terminalBackground())
         view.translatesAutoresizingMaskIntoConstraints = false
         terminalHost.addSubview(view)
         NSLayoutConstraint.activate([
@@ -748,8 +755,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     private func focusSelected() {
         guard !allowWindowClose, tabs.indices.contains(selected), let window else { return }
-        window.makeFirstResponder(tabs[selected].view)
-        tabs[selected].view.focusSurface(window.isKeyWindow)
+        tabs[selected].content.focus()
+        tabs[selected].view.focusSurface(window.isKeyWindow && window.firstResponder === tabs[selected].view)
         syncWindowTitles()
     }
 
@@ -768,7 +775,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         var list = TabList(ids: tabs.map(\.id), selected: selected)
         guard list.close(tab.id, replacement: created?.id ?? tab.id) != nil else { return }
         if let created { install(created) }
-        tab.view.removeFromSuperview()
+        tab.content.removeFromSuperview()
         tab.view.releaseSurface()
         var pool = tabs
         if let created { pool.append(created) }
@@ -875,7 +882,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         for tab in tabs {
-            tab.view.removeFromSuperview()
+            tab.content.removeFromSuperview()
             tab.view.releaseSurface()
         }
         tabs.removeAll()
@@ -1045,13 +1052,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         case .tab(let id):
             let label = tabs.first(where: { $0.id == id })?.label ?? "this terminal"
             alert.messageText = "Close this terminal?"
-            alert.informativeText = "A program is still running in \(label)."
+            alert.informativeText = "Closing \(label) may stop a running program or discard unsubmitted command input."
         case .tabs(let ids):
             alert.messageText = "Close these terminals?"
-            alert.informativeText = "A program is still running. This closes all \(ids.count) tabs."
+            alert.informativeText = "This closes all \(ids.count) tabs and may stop running programs or discard unsubmitted command input."
         case .window:
             alert.messageText = "Close this window?"
-            alert.informativeText = "A program is still running."
+            alert.informativeText = "Closing may stop running programs or discard unsubmitted command input."
         }
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Close")
@@ -1142,6 +1149,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     private func updateSurfaceVisibility() {
         for (offset, tab) in tabs.enumerated() {
+            tab.content.isHidden = offset != selected
             tab.view.showSurface(offset == selected)
         }
         syncProjectExplorer()

@@ -64,9 +64,11 @@ final class GhosttyHost: NSObject {
     final class Surface {
         fileprivate let raw: ghostty_surface_t
         let view: NSView
-        fileprivate init(raw: ghostty_surface_t, view: NSView) {
+        let commandInput: CommandInputBridge?
+        fileprivate init(raw: ghostty_surface_t, view: NSView, commandInput: CommandInputBridge?) {
             self.raw = raw
             self.view = view
+            self.commandInput = commandInput
         }
     }
 
@@ -88,6 +90,17 @@ final class GhosttyHost: NSObject {
             "close action tags drifted from the terminal core header"
         )
         if app != nil { return }
+        // A parent terminal may export its own resource directory. Always use
+        // this app's bundle, including our independently maintained ZLE bridge.
+        guard let resources = Bundle.main.resourceURL,
+              FileManager.default.fileExists(atPath: resources.appendingPathComponent("ghostty/shell-integration/zsh/boome-input").path),
+              FileManager.default.fileExists(atPath: resources.appendingPathComponent("terminfo").path) else {
+            fputs("Boome terminal resources are missing from its application bundle\n", stderr)
+            exit(1)
+        }
+        setenv("GHOSTTY_RESOURCES_DIR", resources.appendingPathComponent("ghostty").path, 1)
+        setenv("TERMINFO", resources.appendingPathComponent("terminfo").path, 1)
+        unsetenv("GHOSTTY_BIN_DIR")
         let code = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
         if code != GHOSTTY_SUCCESS {
             fputs("ghostty_init failed (\(code))\n", stderr)
@@ -164,15 +177,30 @@ final class GhosttyHost: NSObject {
         options.font_size = 0
         options.context = contextTab ? GHOSTTY_SURFACE_CONTEXT_TAB : GHOSTTY_SURFACE_CONTEXT_WINDOW
 
-        let created: ghostty_surface_t? = workingDirectory.withCString { directory in
-            options.working_directory = directory
-            return ghostty_surface_new(app, &options)
+        let commandInput = CommandInputBridge()
+        let key = strdup("BOOME_INPUT_DIR")
+        let value = strdup(commandInput?.directory.path ?? "")
+        defer { free(key); free(value) }
+        var environment = ghostty_env_var_s(key: UnsafePointer(key), value: UnsafePointer(value))
+        let created: ghostty_surface_t? = withUnsafeMutablePointer(to: &environment) { environment in
+            options.env_vars = environment
+            options.env_var_count = commandInput == nil ? 0 : 1
+            return workingDirectory.withCString { directory in
+                options.working_directory = directory
+                return ghostty_surface_new(app, &options)
+            }
         }
         guard let raw = created else {
             fputs("ghostty_surface_new failed\n", stderr)
             return nil
         }
-        let surface = Surface(raw: raw, view: view)
+        let surface = Surface(raw: raw, view: view, commandInput: commandInput)
+        commandInput?.onCommit = { [weak self, weak surface] key in
+            guard let self, let surface, self.surfaces[ObjectIdentifier(surface.view)] === surface else { return false }
+            // Binding text writes raw bytes; surface_text would bracket this as paste.
+            return self.performBinding(surface, "text:" + key)
+        }
+        commandInput?.start()
         surfaces[ObjectIdentifier(view)] = surface
         byUserdata[userdata] = surface
         syncGeometry(surface)
@@ -196,6 +224,7 @@ final class GhosttyHost: NSObject {
         let userdata = Unmanaged.passUnretained(surface.view).toOpaque()
         surfaces.removeValue(forKey: ObjectIdentifier(surface.view))
         byUserdata.removeValue(forKey: userdata)
+        surface.commandInput?.close()
         ghostty_surface_free(surface.raw)
     }
 
@@ -399,6 +428,11 @@ final class GhosttyHost: NSObject {
 
     func sendScroll(_ surface: Surface, x: Double, y: Double, mods: Int32) {
         ghostty_surface_mouse_scroll(surface.raw, x, y, mods)
+    }
+
+    func hasSelection(_ surface: Surface) -> Bool {
+        guard surfaces[ObjectIdentifier(surface.view)] === surface else { return false }
+        return ghostty_surface_has_selection(surface.raw)
     }
 
     func performBinding(_ surface: Surface, _ action: String) -> Bool {
@@ -678,7 +712,7 @@ final class GhosttyHost: NSObject {
         let host = GhosttyHost.shared
         guard let surface = host.surface(for: userdata) else { return }
         DispatchQueue.main.async {
-            host.delegate?.ghosttyHost(host, surface: surface, closeProcessAlive: processAlive)
+            host.delegate?.ghosttyHost(host, surface: surface, closeProcessAlive: processAlive || surface.commandInput?.hasDraft == true || surface.commandInput?.pending != nil)
         }
     }
 

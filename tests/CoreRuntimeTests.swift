@@ -24,7 +24,8 @@ func check(_ name: String, _ condition: @autoclosure () -> Bool) throws {
 
     static func run() throws {
         let app = NSApplication.shared
-        app.setActivationPolicy(.prohibited)
+        let uiSmoke = ProcessInfo.processInfo.environment["BOOME_INPUT_UI_SMOKE"] == "1"
+        app.setActivationPolicy(uiSmoke ? .regular : .prohibited)
         var displays = [CGDirectDisplayID](repeating: 0, count: 16)
         var displayCount: UInt32 = 0
         guard CGGetActiveDisplayList(16, &displays, &displayCount) == .success, displayCount > 0 else {
@@ -43,8 +44,24 @@ func check(_ name: String, _ condition: @autoclosure () -> Bool) throws {
             for controller in workspace.controllers { controller.window?.close() }
             host.shutdown()
         }
+        if ProcessInfo.processInfo.environment["BOOME_INPUT_FALLBACK_SMOKE"] == "1" {
+            let controller = workspace.newWindow(empty: true)!
+            controller.window?.alphaValue = 0
+            controller.newTab()
+            let tab = controller.tabs(with: Set(controller.arrangement.ids))[0]
+            let output = root.appendingPathComponent("fallback.txt")
+            try check("fallback shell accepts ordinary terminal input", host.performBinding(tab.view.surface, "text:printf 'fallback' > '" + output.path + "'\\r"))
+            try check("fallback shell executes without native takeover", wait { (try? String(contentsOf: output)) == "fallback" })
+            try check("unsupported shell retains the full terminal", tab.view.surface.commandInput?.snapshot == nil && tab.content.input?.preferredHeight == 0)
+            print("OK unsupported-shell fallback checks"); fflush(stdout)
+            return
+        }
+        if uiSmoke {
+            try CommandInputUITests.run(workspace: workspace, root: root)
+            return
+        }
         let info = ghostty_info()
-        try check("runtime loads the owned terminal core", String(decoding: UnsafeRawBufferPointer(start: info.version, count: Int(info.version_len)), as: UTF8.self) == "1.3.1-boome.1")
+        try check("runtime loads the owned terminal core", String(decoding: UnsafeRawBufferPointer(start: info.version, count: Int(info.version_len)), as: UTF8.self) == "1.3.1-boome.2")
         try check("runtime core is compiled in ReleaseFast", info.build_mode == GHOSTTY_BUILD_MODE_RELEASE_FAST)
         let aFile = root.appendingPathComponent("A.txt")
         let bFile = root.appendingPathComponent("B.txt")
@@ -59,6 +76,25 @@ func check(_ name: String, _ condition: @autoclosure () -> Bool) throws {
         let b = source.tabs(with: [ids[1]])[0]
         try check("both shells become ready", wait { !a.terminalTitle.isEmpty && !b.terminalTitle.isEmpty })
         let originalSurface = a.view.surface!
+        let commandInput = a.content.input!
+        try check("zsh command-input handshake completes", wait { originalSurface.commandInput?.snapshot?.isReady == true })
+        try check("supported shell exposes native command editing", commandInput.expanded)
+        let nativeOutput = root.appendingPathComponent("native.txt")
+        commandInput.textView.string = "NATIVE_VALUE='中文👩‍💻'; printf '%s:%s' \"$NATIVE_VALUE\" $$ > '" + nativeOutput.path + "'"
+        commandInput.textDidChange(Notification(name: NSText.didChangeNotification))
+        commandInput.submit()
+        try check("native submission executes through the original shell", wait { FileManager.default.fileExists(atPath: nativeOutput.path) && originalSurface.commandInput?.pending == nil })
+        try check("native command preserves Unicode and shell PID", (try? String(contentsOf: nativeOutput)) == "中文👩‍💻:" + String(originalSurface.commandInput!.snapshot!.pid))
+        try check("native prompt returns after submission", wait { commandInput.expanded && originalSurface.commandInput?.snapshot?.isReady == true })
+        commandInput.textView.string = "read -r BOOME_REPLY; printf '%s' \"$BOOME_REPLY\" > '" + root.appendingPathComponent("reply.txt").path + "'"
+        commandInput.textDidChange(Notification(name: NSText.didChangeNotification))
+        commandInput.submit()
+        let released = wait { originalSurface.commandInput?.snapshot?.state == "busy" && originalSurface.commandInput?.pending == nil && !commandInput.expanded }
+        if !released { print("Submission state:", String(describing: originalSurface.commandInput?.snapshot), "pending:", String(describing: originalSurface.commandInput?.pending?.action), "error:", String(describing: originalSurface.commandInput?.error), "draft:", commandInput.textView.string) }
+        try check("running program releases native input and handshake", released)
+        try check("program still receives ordinary terminal input", host.performBinding(originalSurface, "text:reply-from-program\\r"))
+        try check("interactive input is not intercepted by command editor", wait { (try? String(contentsOf: root.appendingPathComponent("reply.txt"))) == "reply-from-program" })
+        try check("command editor restores after program returns", wait { commandInput.expanded })
         func shell(_ text: String) throws {
             try check("terminal text binding accepted", host.performBinding(originalSurface, "text:" + text + "\\r"))
         }
@@ -71,6 +107,13 @@ func check(_ name: String, _ condition: @autoclosure () -> Bool) throws {
         try check("source editor opens", wait { editor.document != nil && !editor.isBusy })
         text.string = "unsaved source buffer\n"; editor.textDidChange(Notification(name: NSText.didChangeNotification))
         source.window!.makeFirstResponder(text)
+        try check("native input reaches current prompt before drafting", wait { originalSurface.commandInput?.snapshot?.isReady == true })
+        commandInput.textView.insertText("printf 'draft 中👩‍💻'", replacementRange: NSRange(location: 0, length: (commandInput.textView.string as NSString).length))
+        commandInput.textDidChange(Notification(name: NSText.didChangeNotification))
+        commandInput.textView.setSelectedRange(NSRange(location: 7, length: 5))
+        let draft = commandInput.textView.string
+        let draftSelection = commandInput.textView.selectedRange()
+        let draftUndo = commandInput.textView.undoManager
         let target = workspace.newWindow(empty: true)!
         target.window?.alphaValue = 0
         target.newTab()
@@ -85,6 +128,11 @@ func check(_ name: String, _ condition: @autoclosure () -> Bool) throws {
         try drag(ids[0])
         try check("last-session transfer leaves editor-only source", source.arrangement.ids.isEmpty && workspace.controllers.contains { $0 === source })
         try check("transfer keeps surface identity", target.tabs(with: [ids[0]]).first?.view === a.view && a.view.surface === originalSurface)
+        try check("command draft moves with its session", a.content.input === commandInput && commandInput.textView.string == draft)
+        try check("command selection and undo manager survive transfer", commandInput.textView.selectedRange() == draftSelection && commandInput.textView.undoManager === draftUndo)
+        commandInput.textView.string = ""
+        commandInput.textDidChange(Notification(name: NSText.didChangeNotification))
+        try check("clearing draft releases close confirmation", !originalSurface.commandInput!.hasDraft)
         try check("unsaved source remains independent", text.string == "unsaved source buffer\n" && editor.hasUnsavedChanges)
         try shell("echo \"$BOOME_PROBE:$$\" > '" + root.appendingPathComponent("after.txt").path + "'")
         try check("transferred shell keeps PID and local variable", wait { (try? String(contentsOf: root.appendingPathComponent("after.txt"))) == before })

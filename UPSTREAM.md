@@ -5,10 +5,10 @@ Boome 的终端核心源自 [Ghostty](https://github.com/ghostty-org/ghostty)。
 ## 当前基线
 
 - 源码来源：Ghostty `v1.3.1`，`332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28`。
-- 核心在 `core/` 中直接维护，版本标为 `1.3.1-boome.1`，Zig 仍为 0.15.2。
+- 核心在 `core/` 中直接维护，版本标为 `1.3.1-boome.2`，Zig 仍为 0.15.2。
 - 上游已处理至 `a2e440396403385680008e456a741a7776091412`。此前核对的 21 个领先提交按适用性处理如下；“已处理”表示完成评估，不表示 Boome 已等同于该上游版本。
 - 本地 `/Users/boom/workspace/ghostty` 是此开发机的参照仓库，不是构建输入。换机器、没有该目录或没有 Git 元数据，均不影响从本仓库源码构建。
-- 本次是源码所有权与构建链迁移，不额外升级到上游 main，不增加新终端行为。
+- 最初的源码所有权迁移不额外升级到上游 main。本地新增行为单独列在下方，不代表扩大上游同步范围。
 
 ## 已吸收行为
 
@@ -35,6 +35,8 @@ Boome 的终端核心源自 [Ghostty](https://github.com/ghostty-org/ghostty)。
 - 保留嵌入库的 C ABI、GhosttyKit 模块名、配置和 shell integration 契约。必要共享辅助代码及原有测试夹具不因目录精简而随意删除。
 - 核心版本来自自身 manifest，不读取 Boome 的 Git tag 推测 Ghostty 版本。
 - 使用当前构建图的确切静态归档输入；不再使用 xcframework、Xcode libtool 或缓存扫描重打包。
+- 本地命令输入增强由 AppKit NSTextView 和 zsh ZLE 协调实现，只借鉴 Warp 的交互模型，不迁入其 Rust 编辑器或 UI 框架。命令文本经每 surface 的私有目录／FIFO 传递；提交校验会话、提示符代次、缓冲版本和期限，先在 ZLE 安装请求专用确认键，再由应用发送确认。普通按键／粘贴在待确认期间暂停转发，不将命令文本模拟输入到运行程序。
+- shell integration 增加 `zsh/boome-input` 本地模块；关闭、运行、未知上下文或不支持的 shell 回到原终端链路。不得以屏幕提示符猜测可编辑缓冲，也不得用 eval 解码编辑请求。应用运行时资源固定取自身 bundle，不能继承父终端的 Ghostty 路径。
 - 保留原始版权、MIT 声明及各依赖／字体／素材各自的许可证。上游源码不是全部同一许可证的独立原创代码。
 
 ## 跟进方法

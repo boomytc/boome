@@ -25,7 +25,10 @@ swiftc \
   "$root/src/ProjectTextFile.swift" \
   "$root/src/ProjectExplorerView.swift" \
   "$root/src/FileEditorView.swift" \
+  "$root/src/CommandInputProtocol.swift" \
+  "$root/src/CommandInputView.swift" \
   "$root/tests/ProjectExplorerTests.swift" \
+  "$root/tests/CommandInputTests.swift" \
   "$root/tests/TabLogicTests.swift"
 
 "$out"
