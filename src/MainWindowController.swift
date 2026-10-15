@@ -613,7 +613,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
     private let host = GhosttyHost.shared
     private let sidebar = TabSidebar()
     private let sidebarToggle = SidebarToggleButton(frame: NSRect(x: 0, y: 0, width: 28, height: 28))
-    private let sessionTitle = SessionTitleLabel(frame: .zero)
     private let terminalHost = NSView()
     private let separator = NSView()
     private var sidebarWidth: NSLayoutConstraint!
@@ -801,8 +800,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
             self?.toggleSidebar()
         }
         titlebar.addSubview(sidebarToggle)
-        sessionTitle.isHidden = true
-        titlebar.addSubview(sessionTitle)
         zoom.postsFrameChangedNotifications = true
         NotificationCenter.default.addObserver(
             self,
@@ -824,14 +821,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
             y: (z.midY - side / 2).rounded(),
             width: side,
             height: side
-        )
-        let showTitle = sidebarCollapsed
-        sessionTitle.isHidden = !showTitle
-        sessionTitle.frame = NSRect(
-            x: (sidebarToggle.frame.maxX + 8).rounded(),
-            y: (sidebarToggle.frame.midY - 11).rounded(),
-            width: 280,
-            height: 22
         )
     }
 
@@ -866,10 +855,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         separator.layer?.backgroundColor = BoomeChrome.hairline(on: background).cgColor
         sidebar.use(background: background)
         sidebarToggle.use(background: background)
-        sessionTitle.textColor = BoomeChrome.text(selected: true, on: background)
         window?.titleVisibility = .hidden
         window?.titlebarAppearsTransparent = true
-        syncSessionTitle()
         window?.tabbingMode = .disallowed
     }
 
@@ -1177,7 +1164,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         } else {
             changes()
         }
-        syncSessionTitle()
     }
 
     private func updateSurfaceVisibility() {
@@ -1190,13 +1176,5 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         if tabs.indices.contains(selected) {
             window?.title = tabs[selected].label
         }
-        syncSessionTitle()
-    }
-
-    /// The system title stays hidden to avoid the sidebar button. The
-    /// folded layout shows the session name without adding a tab picker.
-    private func syncSessionTitle() {
-        guard sidebarCollapsed, tabs.indices.contains(selected) else { return }
-        sessionTitle.show(tabs[selected].label)
     }
 }
