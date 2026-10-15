@@ -1,0 +1,347 @@
+diff --git a/src/terminal/formatter.zig b/src/terminal/formatter.zig
+index 062e396..f19f712 100644
+--- a/src/terminal/formatter.zig
++++ b/src/terminal/formatter.zig
+@@ -997,10 +997,14 @@ pub const PageFormatter = struct {
+         // Our style for non-plain formats
+         var style: Style = .{};
+ 
+-        // Track hyperlink state for HTML output. We need to close </a> tags
+-        // when the hyperlink changes or ends.
++        // Track hyperlink state for HTML and VT. Close </a> or OSC 8 when
++        // the hyperlink changes or ends. VT replaces an open hyperlink by
++        // opening the next one, so it only writes a close when none follows.
+         var current_hyperlink_id: ?hyperlink.Id = null;
+ 
++        // Most pages hold no hyperlinks, so skip the per-cell lookup.
++        const page_hyperlinks = self.page.hyperlinkCount() > 0;
++
+         for (start_y..end_y + 1) |y_usize| {
+             const y: size.CellCountInt = @intCast(y_usize);
+             const row: *Row = self.page.getRow(y);
+@@ -1151,6 +1155,13 @@ pub const PageFormatter = struct {
+                 // This cell is not blank. If we have accumulated blank cells
+                 // then we want to emit them now.
+                 if (blank_cells > 0) {
++                    // Blank cells have no hyperlink. In VT an open OSC 8
++                    // would apply to the spaces written for them.
++                    if (self.opts.emit == .vt and current_hyperlink_id != null) {
++                        try self.formatHyperlinkClose(writer);
++                        current_hyperlink_id = null;
++                    }
++
+                     try writer.splatByteAll(' ', blank_cells);
+ 
+                     if (self.point_map) |*map| {
+@@ -1239,10 +1250,9 @@ pub const PageFormatter = struct {
+ 
+                 // Hyperlink state
+                 hyperlink: {
+-                    // We currently only emit hyperlinks for HTML. In the
+-                    // future we can support emitting OSC 8 hyperlinks for
+-                    // VT output as well.
+-                    if (self.opts.emit != .html) break :hyperlink;
++                    // HTML emits anchors and VT emits OSC 8. Plain text
++                    // has nowhere to put a hyperlink.
++                    if (!self.opts.emit.styled() or !page_hyperlinks) break :hyperlink;
+ 
+                     // Get the hyperlink ID. This ID is our internal ID,
+                     // not necessarily the OSC8 ID.
+@@ -1255,29 +1265,26 @@ pub const PageFormatter = struct {
+                     // identical hyperlink state and we do nothing.
+                     if (current_hyperlink_id == link_id_) break :hyperlink;
+ 
+-                    // If our prior hyperlink ID was non-null, we need to
+-                    // close it because the ID has changed.
+-                    if (current_hyperlink_id != null) {
++                    // HTML must close the previous anchor. VT opening a
++                    // hyperlink replaces the open one, so a close is written
++                    // only when no hyperlink follows.
++                    if (current_hyperlink_id != null and
++                        (self.opts.emit == .html or link_id_ == null))
++                    {
+                         try self.formatHyperlinkClose(writer);
+-                        current_hyperlink_id = null;
+                     }
++                    current_hyperlink_id = null;
+ 
+                     // Set our current hyperlink ID
+                     const link_id = link_id_ orelse break :hyperlink;
+                     current_hyperlink_id = link_id;
+ 
+                     // Emit the opening hyperlink tag
+-                    const uri = uri: {
+-                        const link = self.page.hyperlink_set.get(
+-                            self.page.memory,
+-                            link_id,
+-                        );
+-                        break :uri link.uri.offset.ptr(self.page.memory)[0..link.uri.len];
+-                    };
+-                    try self.formatHyperlinkOpen(
+-                        writer,
+-                        uri,
++                    const link = self.page.hyperlink_set.get(
++                        self.page.memory,
++                        link_id,
+                     );
++                    try self.formatHyperlinkOpen(writer, link);
+ 
+                     // If we have a point map, we map the hyperlink to
+                     // this cell.
+@@ -1285,7 +1292,7 @@ pub const PageFormatter = struct {
+                         var discarding: std.Io.Writer.Discarding = .init(&.{});
+                         try self.formatHyperlinkOpen(
+                             &discarding.writer,
+-                            uri,
++                            link,
+                         );
+                         for (0..discarding.count) |_| map.map.append(map.alloc, .{
+                             .x = x,
+@@ -1328,7 +1335,7 @@ pub const PageFormatter = struct {
+         // If the style is non-default, we need to close our style tag.
+         if (!style.default()) try self.formatStyleClose(writer);
+ 
+-        // Close any open hyperlink for HTML output
++        // Close any open hyperlink.
+         if (current_hyperlink_id != null) try self.formatHyperlinkClose(writer);
+ 
+         // Close the monospace wrapper for HTML output
+@@ -1536,10 +1543,20 @@ pub const PageFormatter = struct {
+     fn formatHyperlinkOpen(
+         self: PageFormatter,
+         writer: *std.Io.Writer,
+-        uri: []const u8,
++        link: *const hyperlink.PageEntry,
+     ) std.Io.Writer.Error!void {
++        const uri = link.uri.slice(self.page.memory);
+         switch (self.opts.emit) {
+-            .plain, .vt => unreachable,
++            .plain => unreachable,
++
++            // OSC 8. An explicit id is kept; opening replaces any open link.
++            .vt => switch (link.id) {
++                .explicit => |id| try writer.print(
++                    "\x1b]8;id={s};{s}\x1b\\",
++                    .{ id.slice(self.page.memory), uri },
++                ),
++                .implicit => try writer.print("\x1b]8;;{s}\x1b\\", .{uri}),
++            },
+ 
+             // layout since we're primarily using it as a CSS wrapper.
+             .html => {
+@@ -1559,7 +1576,8 @@ pub const PageFormatter = struct {
+     ) std.Io.Writer.Error!void {
+         const str: []const u8 = switch (self.opts.emit) {
+             .html => "</a>",
+-            .plain, .vt => return,
++            .vt => "\x1b]8;;\x1b\\",
++            .plain => return,
+         };
+ 
+         try writer.writeAll(str);
+@@ -6266,3 +6284,205 @@ test "Page HTML hyperlink point map maps closing to previous cell" {
+         try testing.expectEqual(expected_coord, point_map.items[i]);
+     }
+ }
++
++test "Page VT with hyperlinks" {
++    const testing = std.testing;
++    const alloc = testing.allocator;
++
++    var builder: std.Io.Writer.Allocating = .init(alloc);
++    defer builder.deinit();
++
++    var t = try Terminal.init(alloc, .{
++        .cols = 80,
++        .rows = 24,
++    });
++    defer t.deinit(alloc);
++
++    var s = t.vtStream();
++    defer s.deinit();
++
++    try s.nextSlice("\x1b]8;;https://example.com\x1b\\link text\x1b]8;;\x1b\\ normal");
++
++    const pages = &t.screens.active.pages;
++    const page = &pages.pages.last.?.data;
++    var point_map: std.ArrayList(Coordinate) = .empty;
++    defer point_map.deinit(alloc);
++    var formatter: PageFormatter = .init(page, .{ .emit = .vt });
++    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
++
++    try formatter.format(&builder.writer);
++    const output = builder.writer.buffered();
++    try testing.expectEqualStrings(
++        "\x1b]8;;https://example.com\x1b\\link text\x1b]8;;\x1b\\ normal",
++        output,
++    );
++    try testing.expectEqual(output.len, point_map.items.len);
++}
++
++test "Page VT with explicit hyperlink id" {
++    const testing = std.testing;
++    const alloc = testing.allocator;
++
++    var builder: std.Io.Writer.Allocating = .init(alloc);
++    defer builder.deinit();
++
++    var t = try Terminal.init(alloc, .{
++        .cols = 80,
++        .rows = 24,
++    });
++    defer t.deinit(alloc);
++
++    var s = t.vtStream();
++    defer s.deinit();
++
++    try s.nextSlice("\x1b]8;id=a;https://example.com\x1b\\one\x1b]8;;\x1b\\");
++
++    const pages = &t.screens.active.pages;
++    const page = &pages.pages.last.?.data;
++    var formatter: PageFormatter = .init(page, .{ .emit = .vt });
++
++    try formatter.format(&builder.writer);
++    try testing.expectEqualStrings(
++        "\x1b]8;id=a;https://example.com\x1b\\one\x1b]8;;\x1b\\",
++        builder.writer.buffered(),
++    );
++}
++
++test "Page VT with hyperlink across rows" {
++    const testing = std.testing;
++    const alloc = testing.allocator;
++
++    var builder: std.Io.Writer.Allocating = .init(alloc);
++    defer builder.deinit();
++
++    var t = try Terminal.init(alloc, .{
++        .cols = 80,
++        .rows = 24,
++    });
++    defer t.deinit(alloc);
++
++    var s = t.vtStream();
++    defer s.deinit();
++
++    try s.nextSlice("\x1b]8;;https://example.com\x1b\\ab\r\ncd\x1b]8;;\x1b\\");
++
++    const pages = &t.screens.active.pages;
++    const page = &pages.pages.last.?.data;
++    var formatter: PageFormatter = .init(page, .{ .emit = .vt });
++
++    try formatter.format(&builder.writer);
++    try testing.expectEqualStrings(
++        "\x1b]8;;https://example.com\x1b\\ab\r\ncd\x1b]8;;\x1b\\",
++        builder.writer.buffered(),
++    );
++}
++
++test "Page VT closes a hyperlink before blank cells" {
++    const testing = std.testing;
++    const alloc = testing.allocator;
++
++    var builder: std.Io.Writer.Allocating = .init(alloc);
++    defer builder.deinit();
++
++    var t = try Terminal.init(alloc, .{
++        .cols = 80,
++        .rows = 24,
++    });
++    defer t.deinit(alloc);
++
++    var s = t.vtStream();
++    defer s.deinit();
++
++    // Cells skipped by the cursor move are blank and have no hyperlink,
++    // so the spaces written for them must not stay inside OSC 8.
++    try s.nextSlice("\x1b]8;;https://example.com\x1b\\ab\x1b[5Gcd\x1b]8;;\x1b\\");
++
++    const pages = &t.screens.active.pages;
++    const page = &pages.pages.last.?.data;
++    var formatter: PageFormatter = .init(page, .{ .emit = .vt });
++
++    try formatter.format(&builder.writer);
++    try testing.expectEqualStrings(
++        "\x1b]8;;https://example.com\x1b\\ab\x1b]8;;\x1b\\" ++
++            "  " ++
++            "\x1b]8;;https://example.com\x1b\\cd\x1b]8;;\x1b\\",
++        builder.writer.buffered(),
++    );
++}
++
++test "Page VT switches between hyperlinks without closing" {
++    const testing = std.testing;
++    const alloc = testing.allocator;
++
++    var builder: std.Io.Writer.Allocating = .init(alloc);
++    defer builder.deinit();
++
++    var t = try Terminal.init(alloc, .{
++        .cols = 80,
++        .rows = 24,
++    });
++    defer t.deinit(alloc);
++
++    var s = t.vtStream();
++    defer s.deinit();
++
++    // Opening a hyperlink replaces the open one, so no close is written
++    // between the two links.
++    try s.nextSlice("\x1b]8;;https://a.example\x1b\\ab\x1b]8;;https://b.example\x1b\\cd\x1b]8;;\x1b\\");
++
++    const pages = &t.screens.active.pages;
++    const page = &pages.pages.last.?.data;
++    var point_map: std.ArrayList(Coordinate) = .empty;
++    defer point_map.deinit(alloc);
++    var formatter: PageFormatter = .init(page, .{ .emit = .vt });
++    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
++
++    try formatter.format(&builder.writer);
++    const open_a = "\x1b]8;;https://a.example\x1b\\";
++    const open_b = "\x1b]8;;https://b.example\x1b\\";
++    const close = "\x1b]8;;\x1b\\";
++    try testing.expectEqualStrings(
++        open_a ++ "ab" ++ open_b ++ "cd" ++ close,
++        builder.writer.buffered(),
++    );
++
++    // Each opening maps to its first cell, and the close maps to the last.
++    var expected: std.ArrayList(Coordinate) = .empty;
++    defer expected.deinit(alloc);
++    try expected.appendNTimes(alloc, .{ .x = 0, .y = 0 }, open_a.len + 1);
++    try expected.append(alloc, .{ .x = 1, .y = 0 });
++    try expected.appendNTimes(alloc, .{ .x = 2, .y = 0 }, open_b.len + 1);
++    try expected.appendNTimes(alloc, .{ .x = 3, .y = 0 }, 1 + close.len);
++    try testing.expectEqualSlices(Coordinate, expected.items, point_map.items);
++}
++
++test "Page VT closes a hyperlink on a row without hyperlinks" {
++    const testing = std.testing;
++    const alloc = testing.allocator;
++
++    var builder: std.Io.Writer.Allocating = .init(alloc);
++    defer builder.deinit();
++
++    var t = try Terminal.init(alloc, .{
++        .cols = 80,
++        .rows = 24,
++    });
++    defer t.deinit(alloc);
++
++    var s = t.vtStream();
++    defer s.deinit();
++
++    // The link is still open when the first row ends. The next row has none,
++    // so the close is written after the newline and before that row's text.
++    try s.nextSlice("\x1b]8;;https://example.com\x1b\\ab\x1b]8;;\x1b\\\r\ncd");
++
++    const pages = &t.screens.active.pages;
++    const page = &pages.pages.last.?.data;
++    var formatter: PageFormatter = .init(page, .{ .emit = .vt });
++
++    try formatter.format(&builder.writer);
++    try testing.expectEqualStrings(
++        "\x1b]8;;https://example.com\x1b\\ab\r\n\x1b]8;;\x1b\\cd",
++        builder.writer.buffered(),
++    );
++}
