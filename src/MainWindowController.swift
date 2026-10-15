@@ -602,6 +602,7 @@ final class TabSidebar: NSView {
     }
 
     func reload(rows: [TabPresentation], selected index: Int, pulse: Bool = false) {
+        let reveal = rowViews.count != rows.count || index != selected
         let animateSelection = !rowViews.isEmpty && index != selected
         selected = index
         if rowViews.count != rows.count {
@@ -622,7 +623,7 @@ final class TabSidebar: NSView {
             if pulse, rowViews.indices.contains(index) {
                 rowViews[index].pulse()
             }
-            revealSelected()
+            if reveal { revealSelected() }
             return
         }
         for (offset, model) in rows.enumerated() {
@@ -632,11 +633,16 @@ final class TabSidebar: NSView {
         if pulse, rowViews.indices.contains(index) {
             rowViews[index].pulse()
         }
+        if reveal { revealSelected() }
+    }
+
+    /// Switch, insert, remove, and layout changes. A title refresh uses
+    /// `reload` with the same selection and does not come through here.
+    func revealSelection() {
         revealSelected()
     }
 
-    /// The selected row stays in the clip, on either axis, including after
-    /// the row list is rebuilt.
+    /// The selected row stays in the clip, on either axis.
     private func revealSelected() {
         guard rowViews.indices.contains(selected) else { return }
         layoutSubtreeIfNeeded()
@@ -777,9 +783,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
 
     func show() {
         guard let window else { return }
-        if !window.setFrameAutosaveName("BoomeMain") {
+        let saved = UserDefaults.standard.string(forKey: ChromeMemory.frameDefaultsKey)
+        if ChromeMemory.hasSavedFrame(saved) {
+            window.setFrameUsingName(ChromeMemory.frameAutosaveName)
+        } else {
             window.center()
         }
+        window.setFrameAutosaveName(ChromeMemory.frameAutosaveName)
         showWindow(nil)
         window.makeKeyAndOrderFront(nil)
         placeSidebarToggle()
@@ -1213,6 +1223,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
 
     func windowDidResize(_ notification: Notification) {
         placeSidebarToggle()
+        sidebar.revealSelection()
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -1229,6 +1240,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         applyTerminalChrome()
         rememberChrome()
         reloadSidebar()
+        sidebar.revealSelection()
         focusSelected()
     }
 
@@ -1406,6 +1418,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
                 .font: NSFont.systemFont(ofSize: 13, weight: .medium),
             ]
         )
+        tabListButton.toolTip = title
         tabListButton.setAccessibilityLabel(title)
     }
 }

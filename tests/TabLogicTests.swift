@@ -164,7 +164,15 @@ enum TabLogicTests {
         var batch = ClosePolicy()
         check("a batch can start", batch.beginBatch([a, b, c]))
         check("the first report waits for the rest of the batch", batch.reportTab(a, alive: true) == .hold && !batch.isPending && batch.isBusy)
-        check("a tab outside the batch is refused while it is collecting", batch.reportTab(TabID(raw: 9), alive: false) == .refused)
+        let outside = TabID(raw: 9)
+        check(
+            "a tab that exits outside a collecting batch is closed",
+            batch.reportTab(outside, alive: false) == .destroy(outside) && batch.isBusy && !batch.isPending
+        )
+        check(
+            "a still-running tab outside the batch does not open a second prompt",
+            batch.reportTab(TabID(raw: 8), alive: true) == .refused && batch.isBusy
+        )
         check("a second batch is refused while one is collecting", !batch.beginBatch([a]))
         check(
             "one alive process asks once for the whole batch",
@@ -172,7 +180,16 @@ enum TabLogicTests {
                 && batch.reportTab(c, alive: true) == .ask(.tabs([a, b, c]))
                 && batch.isPending
         )
+        let exited = TabID(raw: 7)
+        check(
+            "a tab that exits while the batch prompt is open is closed",
+            batch.reportTab(exited, alive: false) == .destroy(exited) && batch.isPending
+        )
         check("cancel keeps every tab in the batch", batch.resolve(confirmed: false) == .keep && !batch.isBusy)
+        check(
+            "the exited tab is not part of the cancelled batch",
+            batch.resolve(confirmed: true) == .none
+        )
 
         var batchConfirm = ClosePolicy()
         check("batch confirm removes every requested tab", {
@@ -188,6 +205,14 @@ enum TabLogicTests {
             guard quietBatch.reportTab(b, alive: false) == .hold else { return false }
             return quietBatch.reportTab(a, alive: false) == .destroyBatch([a, b]) && !quietBatch.isBusy
         }())
+
+        var duplicate = ClosePolicy()
+        _ = duplicate.beginBatch([a, b])
+        _ = duplicate.reportTab(a, alive: false)
+        check(
+            "a second exit report for a batch tab is not applied early",
+            duplicate.reportTab(a, alive: false) == .refused && duplicate.isBusy && !duplicate.isPending
+        )
 
         var blocked = ClosePolicy()
         _ = blocked.reportWindow(live: [a])
@@ -208,6 +233,8 @@ enum TabLogicTests {
             ChromeMemory.record(placement: "horizontal", collapsed: nil) == ChromeMemory.Record(horizontal: true, sidebarCollapsed: false)
                 && ChromeMemory.record(placement: "vertical", collapsed: true) == ChromeMemory.Record(horizontal: false, sidebarCollapsed: true)
         )
+        check("a missing window frame is not a restore", !ChromeMemory.hasSavedFrame(nil) && !ChromeMemory.hasSavedFrame("  "))
+        check("a saved window frame can be restored", ChromeMemory.hasSavedFrame("0 0 800 600 0 0 1440 900 "))
     }
 
     static func navigation() {

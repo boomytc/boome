@@ -195,23 +195,32 @@ struct ClosePolicy {
 
     mutating func reportTab(_ id: TabID, alive: Bool) -> Report {
         if var batch {
-            guard batch.waiting.contains(id) else { return .refused }
-            batch.waiting.remove(id)
-            if alive { batch.alive.append(id) }
-            if !batch.waiting.isEmpty {
-                self.batch = batch
-                return .hold
+            if batch.order.contains(id) {
+                guard batch.waiting.contains(id) else { return .refused }
+                batch.waiting.remove(id)
+                if alive { batch.alive.append(id) }
+                if !batch.waiting.isEmpty {
+                    self.batch = batch
+                    return .hold
+                }
+                let order = batch.order
+                let anyAlive = !batch.alive.isEmpty
+                self.batch = nil
+                if anyAlive {
+                    pending = .tabs(order)
+                    return .ask(.tabs(order))
+                }
+                return .destroyBatch(order)
             }
-            let order = batch.order
-            let anyAlive = !batch.alive.isEmpty
-            self.batch = nil
-            if anyAlive {
-                pending = .tabs(order)
-                return .ask(.tabs(order))
-            }
-            return .destroyBatch(order)
+            // A shell outside this batch can exit on its own. Dropping that
+            // report would leave the dead tab after Cancel.
+            if !alive { return .destroy(id) }
+            return .refused
         }
-        if case .tabs = pending { return .refused }
+        if case .tabs(let ids) = pending {
+            if !alive && !ids.contains(id) { return .destroy(id) }
+            return .refused
+        }
         if alive {
             if pending != nil { return .refused }
             pending = .tab(id)
@@ -250,6 +259,15 @@ struct ClosePolicy {
 enum ChromeMemory {
     static let placementKey = "BoomeTabPlacement"
     static let collapsedKey = "BoomeSidebarCollapsed"
+    static let frameAutosaveName = "BoomeMain"
+    static var frameDefaultsKey: String { "NSWindow Frame \(frameAutosaveName)" }
+
+    /// `setFrameAutosaveName` succeeds when it registers the name, even when
+    /// nothing was saved yet. A frame string is the record that can be restored.
+    static func hasSavedFrame(_ saved: String?) -> Bool {
+        guard let saved else { return false }
+        return !saved.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     struct Record: Equatable {
         var horizontal: Bool
