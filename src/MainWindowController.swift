@@ -399,6 +399,15 @@ private final class QuietAddButton: NSView {
     }
 }
 
+/// Title-bar tab name. A normal button's mouseUp does not arrive here.
+private final class TabListButton: NSButton {
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override func mouseDown(with event: NSEvent) {
+        sendAction(action, to: target)
+    }
+}
+
 /// Title-bar control for the sidebar. The glyph stays `sidebar.left`.
 /// The label follows the window's existing collapsed bit.
 private final class SidebarToggleButton: NSView {
@@ -613,6 +622,7 @@ final class TabSidebar: NSView {
             if pulse, rowViews.indices.contains(index) {
                 rowViews[index].pulse()
             }
+            revealSelected()
             return
         }
         for (offset, model) in rows.enumerated() {
@@ -622,9 +632,17 @@ final class TabSidebar: NSView {
         if pulse, rowViews.indices.contains(index) {
             rowViews[index].pulse()
         }
-        if axis == .horizontal, rowViews.indices.contains(index) {
-            rowViews[index].scrollToVisible(rowViews[index].bounds)
-        }
+        revealSelected()
+    }
+
+    /// The selected row stays in the clip, on either axis, including after
+    /// the row list is rebuilt.
+    private func revealSelected() {
+        guard rowViews.indices.contains(selected) else { return }
+        layoutSubtreeIfNeeded()
+        let row = rowViews[selected]
+        let rect = row.convert(row.bounds, to: scroll.contentView)
+        scroll.contentView.scrollToVisible(rect)
     }
 
     func use(background: NSColor) {
@@ -693,6 +711,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
     private let host = GhosttyHost.shared
     private let sidebar = TabSidebar()
     private let sidebarToggle = SidebarToggleButton(frame: NSRect(x: 0, y: 0, width: 28, height: 28))
+    private let tabListButton = TabListButton()
     private let terminalHost = NSView()
     private let separator = NSView()
     private var sidebarWidth: NSLayoutConstraint!
@@ -741,7 +760,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         window.delegate = self
         host.delegate = self
         buildChrome()
-        applyTerminalChrome()
+        restoreChrome()
         newTab()
         appearanceObserver = NSApp.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, _ in
             DispatchQueue.main.async {
@@ -757,9 +776,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
     }
 
     func show() {
-        window?.center()
+        guard let window else { return }
+        if !window.setFrameAutosaveName("BoomeMain") {
+            window.center()
+        }
         showWindow(nil)
-        window?.makeKeyAndOrderFront(nil)
+        window.makeKeyAndOrderFront(nil)
         placeSidebarToggle()
         focusSelected()
     }
@@ -787,6 +809,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         }
         sidebarCollapsed.toggle()
         applySidebarWidth(animated: true)
+        rememberChrome()
         focusSelected()
     }
 
@@ -832,7 +855,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
             performWindowClose(followUp)
             return
         }
-        if closePolicy.isPending {
+        if closePolicy.isBusy {
             _ = closePolicy.reportWindow(live: [])
             return
         }
@@ -915,6 +938,21 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
             self?.toggleSidebar()
         }
         titlebar.addSubview(sidebarToggle)
+        tabListButton.bezelStyle = .shadowlessSquare
+        tabListButton.isBordered = false
+        tabListButton.imagePosition = .imageLeft
+        tabListButton.imageHugsTitle = true
+        tabListButton.alignment = .left
+        tabListButton.lineBreakMode = .byTruncatingTail
+        tabListButton.font = .systemFont(ofSize: 13, weight: .medium)
+        tabListButton.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "标签")
+        tabListButton.image?.isTemplate = true
+        tabListButton.toolTip = "标签"
+        tabListButton.setAccessibilityLabel("标签")
+        tabListButton.target = self
+        tabListButton.action = #selector(showTabList(_:))
+        tabListButton.isHidden = true
+        titlebar.addSubview(tabListButton)
         zoom.postsFrameChangedNotifications = true
         NotificationCenter.default.addObserver(
             self,
@@ -937,6 +975,60 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
             width: side,
             height: side
         )
+        let showList = placement == .vertical && sidebarCollapsed
+        tabListButton.isHidden = !showList
+        tabListButton.frame = NSRect(
+            x: (sidebarToggle.frame.maxX + 8).rounded(),
+            y: (sidebarToggle.frame.midY - 11).rounded(),
+            width: 280,
+            height: 22
+        )
+    }
+
+    /// Vertical and open on first launch. The frame itself is AppKit's autosave.
+    private func restoreChrome() {
+        let stored = UserDefaults.standard
+        let record = ChromeMemory.record(
+            placement: stored.string(forKey: ChromeMemory.placementKey),
+            collapsed: stored.object(forKey: ChromeMemory.collapsedKey) as? Bool
+        )
+        sidebarCollapsed = record.sidebarCollapsed
+        if record.horizontal {
+            placement = .horizontal
+            sidebar.setAxis(.horizontal)
+            NSLayoutConstraint.deactivate(verticalChrome)
+            NSLayoutConstraint.activate(horizontalChrome)
+        }
+        applySidebarWidth(animated: false)
+        applyTerminalChrome()
+    }
+
+    private func rememberChrome() {
+        let stored = UserDefaults.standard
+        stored.set(placement == .horizontal ? "horizontal" : "vertical", forKey: ChromeMemory.placementKey)
+        stored.set(sidebarCollapsed, forKey: ChromeMemory.collapsedKey)
+    }
+
+    @objc private func showTabList(_ sender: NSButton) {
+        let rows = TabPresentation.disambiguate(
+            tabs.map { TabPresentation.make(label: $0.label, customTitle: $0.tabTitle != nil) }
+        )
+        let menu = NSMenu()
+        for (index, row) in rows.enumerated() {
+            let title = row.secondary.map { "\(row.primary) — \($0)" } ?? row.primary
+            let item = NSMenuItem(title: title, action: #selector(selectListedTab(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = index
+            item.state = index == selected ? .on : .off
+            menu.addItem(item)
+        }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height), in: sender)
+        focusSelected()
+    }
+
+    @objc private func selectListedTab(_ sender: NSMenuItem) {
+        guard let index = sender.representedObject as? Int else { return }
+        select(index)
     }
 
     private func syncSidebarToggle() {
@@ -952,8 +1044,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         separator.layer?.backgroundColor = BoomeChrome.hairline(on: background).cgColor
         sidebar.use(background: background)
         sidebarToggle.use(background: background)
+        tabListButton.contentTintColor = BoomeChrome.text(selected: true, on: background)
         window?.titleVisibility = .hidden
         window?.titlebarAppearsTransparent = true
+        syncTabListTitle()
         window?.tabbingMode = .disallowed
     }
 
@@ -1073,21 +1167,27 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
                 presentConfirm(subject)
             case .closeWindowNow:
                 performWindowClose(windowFollowUp ?? .closeWindow)
-            case .refused:
-                break
-            case .destroy:
+            case .refused, .hold, .destroy(_), .destroyBatch(_):
                 break
             }
             return
         }
         switch closePolicy.reportTab(tab.id, alive: alive) {
         case .destroy(let id):
-            guard let victim = tabs.first(where: { $0.id == id }) else { return }
-            remove(victim)
+            destroyTabs([id])
+        case .destroyBatch(let ids):
+            destroyTabs(ids)
         case .ask(let subject):
             presentConfirm(subject)
-        case .refused, .closeWindowNow:
+        case .refused, .closeWindowNow, .hold:
             break
+        }
+    }
+
+    private func destroyTabs(_ ids: [TabID]) {
+        for id in ids {
+            guard let tab = tabs.first(where: { $0.id == id }) else { continue }
+            remove(tab)
         }
     }
 
@@ -1127,6 +1227,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         NSLayoutConstraint.activate(next == .horizontal ? horizontalChrome : verticalChrome)
         applySidebarWidth(animated: true)
         applyTerminalChrome()
+        rememberChrome()
         reloadSidebar()
         focusSelected()
     }
@@ -1184,8 +1285,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
     }
 
     private func requestClose(ids: [TabID]) {
-        if closePolicy.isPending || windowProbe != nil { return }
-        for id in ids {
+        if closePolicy.isBusy || windowProbe != nil { return }
+        let targets = ids.filter { id in tabs.contains { $0.id == id } }
+        if targets.count > 1, !closePolicy.beginBatch(targets) { return }
+        for id in targets {
             guard let tab = tabs.first(where: { $0.id == id }) else { continue }
             host.requestClose(tab.view.surface)
         }
@@ -1203,6 +1306,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
             let label = tabs.first(where: { $0.id == id })?.label ?? "this terminal"
             alert.messageText = "Close this terminal?"
             alert.informativeText = "A program is still running in \(label)."
+        case .tabs(let ids):
+            alert.messageText = "Close these terminals?"
+            alert.informativeText = "A program is still running. This closes all \(ids.count) tabs."
         case .window:
             alert.messageText = "Close this window?"
             alert.informativeText = "A program is still running."
@@ -1242,6 +1348,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
 
     private func applySidebarWidth(animated: Bool) {
         syncSidebarToggle()
+        placeSidebarToggle()
         let horizontal = placement == .horizontal
         let sidebarOpen = !horizontal && !sidebarCollapsed
         let changes = {
@@ -1282,5 +1389,23 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, GhosttyH
         if tabs.indices.contains(selected) {
             window?.title = tabs[selected].label
         }
+        syncTabListTitle()
+    }
+
+    /// The system title is hidden so it does not paint over the sidebar
+    /// button. While the sidebar is folded, this control is the tab name
+    /// and the menu that selects another tab.
+    private func syncTabListTitle() {
+        guard placement == .vertical, sidebarCollapsed, tabs.indices.contains(selected) else { return }
+        let title = tabs[selected].label
+        let color = BoomeChrome.text(selected: true, on: host.terminalBackground())
+        tabListButton.attributedTitle = NSAttributedString(
+            string: title,
+            attributes: [
+                .foregroundColor: color,
+                .font: NSFont.systemFont(ofSize: 13, weight: .medium),
+            ]
+        )
+        tabListButton.setAccessibilityLabel(title)
     }
 }

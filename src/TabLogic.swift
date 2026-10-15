@@ -139,21 +139,37 @@ enum LibraryActionRoute {
 /// tab that was asked about, or closes the window. A dead process is not a
 /// prompt. While the window prompt is open, nothing is removed: Cancel has
 /// to leave every shell.
+///
+/// A batch (close others, close to the right) waits until every requested
+/// tab has reported. Nothing in that batch is removed early. One alive
+/// process asks once for the whole batch. Confirm removes every requested
+/// tab. Cancel removes none.
 struct ClosePolicy {
     enum Subject: Equatable {
         case tab(TabID)
+        case tabs([TabID])
         case window
     }
 
+    private struct Batch {
+        var waiting: Set<TabID>
+        var order: [TabID]
+        var alive: [TabID]
+    }
+
     private(set) var pending: Subject?
+    private var batch: Batch?
 
     var isPending: Bool { pending != nil }
+    var isBusy: Bool { pending != nil || batch != nil }
 
     enum Report: Equatable {
         case destroy(TabID)
+        case destroyBatch([TabID])
         case ask(Subject)
         case refused
         case closeWindowNow
+        case hold
     }
 
     enum Resolution: Equatable {
@@ -163,7 +179,39 @@ struct ClosePolicy {
         case none
     }
 
+    /// Starts a batch. False when a prompt or another batch is already open.
+    /// An empty list does not become busy.
+    mutating func beginBatch(_ ids: [TabID]) -> Bool {
+        if isBusy { return false }
+        var seen = Set<TabID>()
+        var order: [TabID] = []
+        for id in ids where seen.insert(id).inserted {
+            order.append(id)
+        }
+        guard !order.isEmpty else { return true }
+        batch = Batch(waiting: Set(order), order: order, alive: [])
+        return true
+    }
+
     mutating func reportTab(_ id: TabID, alive: Bool) -> Report {
+        if var batch {
+            guard batch.waiting.contains(id) else { return .refused }
+            batch.waiting.remove(id)
+            if alive { batch.alive.append(id) }
+            if !batch.waiting.isEmpty {
+                self.batch = batch
+                return .hold
+            }
+            let order = batch.order
+            let anyAlive = !batch.alive.isEmpty
+            self.batch = nil
+            if anyAlive {
+                pending = .tabs(order)
+                return .ask(.tabs(order))
+            }
+            return .destroyBatch(order)
+        }
+        if case .tabs = pending { return .refused }
         if alive {
             if pending != nil { return .refused }
             pending = .tab(id)
@@ -175,7 +223,7 @@ struct ClosePolicy {
     }
 
     mutating func reportWindow(live: [TabID]) -> Report {
-        if pending != nil { return .refused }
+        if pending != nil || batch != nil { return .refused }
         if live.isEmpty { return .closeWindowNow }
         pending = .window
         return .ask(.window)
@@ -189,9 +237,27 @@ struct ClosePolicy {
         switch subject {
         case .tab(let id):
             return .destroy([id])
+        case .tabs(let ids):
+            return .destroy(ids)
         case .window:
             return .closeWindow
         }
+    }
+}
+
+/// Layout remembered across launches. The window frame is saved by AppKit.
+/// A missing or unknown value is the first-launch layout: vertical, open.
+enum ChromeMemory {
+    static let placementKey = "BoomeTabPlacement"
+    static let collapsedKey = "BoomeSidebarCollapsed"
+
+    struct Record: Equatable {
+        var horizontal: Bool
+        var sidebarCollapsed: Bool
+    }
+
+    static func record(placement: String?, collapsed: Bool?) -> Record {
+        Record(horizontal: placement == "horizontal", sidebarCollapsed: collapsed ?? false)
     }
 }
 

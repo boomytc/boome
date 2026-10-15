@@ -8,6 +8,7 @@ enum TabLogicTests {
         directory()
         tabList()
         closePolicy()
+        chromeMemory()
         navigation()
         closeActions()
         presentation()
@@ -158,6 +159,55 @@ enum TabLogicTests {
         _ = again.reportTab(a, alive: true)
         _ = again.resolve(confirmed: false)
         check("a confirm can open again after cancel", again.reportTab(b, alive: true) == .ask(.tab(b)))
+
+        let c = TabID(raw: 3)
+        var batch = ClosePolicy()
+        check("a batch can start", batch.beginBatch([a, b, c]))
+        check("the first report waits for the rest of the batch", batch.reportTab(a, alive: true) == .hold && !batch.isPending && batch.isBusy)
+        check("a tab outside the batch is refused while it is collecting", batch.reportTab(TabID(raw: 9), alive: false) == .refused)
+        check("a second batch is refused while one is collecting", !batch.beginBatch([a]))
+        check(
+            "one alive process asks once for the whole batch",
+            batch.reportTab(b, alive: false) == .hold
+                && batch.reportTab(c, alive: true) == .ask(.tabs([a, b, c]))
+                && batch.isPending
+        )
+        check("cancel keeps every tab in the batch", batch.resolve(confirmed: false) == .keep && !batch.isBusy)
+
+        var batchConfirm = ClosePolicy()
+        check("batch confirm removes every requested tab", {
+            guard batchConfirm.beginBatch([c, a]) else { return false }
+            guard batchConfirm.reportTab(c, alive: false) == .hold else { return false }
+            return batchConfirm.reportTab(a, alive: true) == .ask(.tabs([c, a]))
+                && batchConfirm.resolve(confirmed: true) == .destroy([c, a])
+        }())
+
+        var quietBatch = ClosePolicy()
+        check("a batch with nothing alive closes without a prompt", {
+            guard quietBatch.beginBatch([a, b]) else { return false }
+            guard quietBatch.reportTab(b, alive: false) == .hold else { return false }
+            return quietBatch.reportTab(a, alive: false) == .destroyBatch([a, b]) && !quietBatch.isBusy
+        }())
+
+        var blocked = ClosePolicy()
+        _ = blocked.reportWindow(live: [a])
+        check("a batch does not start while the window confirm is open", !blocked.beginBatch([a, b]))
+    }
+
+    static func chromeMemory() {
+        check(
+            "a missing layout is vertical and open",
+            ChromeMemory.record(placement: nil, collapsed: nil) == ChromeMemory.Record(horizontal: false, sidebarCollapsed: false)
+        )
+        check(
+            "an unknown placement stays vertical",
+            ChromeMemory.record(placement: "sideways", collapsed: true) == ChromeMemory.Record(horizontal: false, sidebarCollapsed: true)
+        )
+        check(
+            "horizontal and a collapsed sidebar are stored separately",
+            ChromeMemory.record(placement: "horizontal", collapsed: nil) == ChromeMemory.Record(horizontal: true, sidebarCollapsed: false)
+                && ChromeMemory.record(placement: "vertical", collapsed: true) == ChromeMemory.Record(horizontal: false, sidebarCollapsed: true)
+        )
     }
 
     static func navigation() {
