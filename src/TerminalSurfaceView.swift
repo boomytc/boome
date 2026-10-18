@@ -9,7 +9,6 @@ final class TerminalSurfaceView: NSView, NSTextInputClient {
     private var collecting = false
     private var collected: [String] = []
     private var cursorStyle: GhosttyHost.CursorStyle = .text
-    private var cursorHidden = false
     private var tracking: NSTrackingArea?
     private var screenObserver: NSObjectProtocol?
 
@@ -51,7 +50,6 @@ final class TerminalSurfaceView: NSView, NSTextInputClient {
     }
 
     func noteCursorHidden(_ hidden: Bool) {
-        cursorHidden = hidden
         if hidden {
             NSCursor.setHiddenUntilMouseMoves(true)
         }
@@ -286,11 +284,6 @@ final class TerminalSurfaceView: NSView, NSTextInputClient {
     }
 
     @objc func paste(_ sender: Any?) {
-        guard surface?.commandInput?.pending == nil else { return }
-        _ = host.performBinding(surface, "paste_from_clipboard")
-    }
-
-    @objc func pasteAsPlainText(_ sender: Any?) {
         guard surface?.commandInput?.pending == nil else { return }
         _ = host.performBinding(surface, "paste_from_clipboard")
     }

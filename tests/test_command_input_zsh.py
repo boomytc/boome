@@ -17,13 +17,15 @@ SCRIPT = Path(__file__).resolve().parents[1] / "core/src/shell-integration/zsh/b
 
 
 class Shell:
-    def __init__(self):
+    def __init__(self, valid_mailbox=True):
         self.temp = tempfile.TemporaryDirectory(prefix="boome zle ")
         self.root = Path(self.temp.name)
         os.chmod(self.root, 0o700)
         self.token = str(uuid.uuid4())
         (self.root / "token").write_text(self.token)
         os.mkfifo(self.root / "notify", 0o600)
+        if not valid_mailbox:
+            (self.root / "notify").unlink()
         self.master, slave = pty.openpty()
         env = dict(os.environ, HOME=str(self.root), ZDOTDIR=str(self.root),
                    BOOME_INPUT_DIR=str(self.root), TERM="xterm-256color", LANG="en_US.UTF-8")
@@ -36,10 +38,39 @@ class Shell:
         self.output = bytearray()
         self.commit_keys = {}
         self.send("source " + shlex.quote(str(SCRIPT)) + "\n")
-        self.wait(lambda s: s and s[6] == "ready")
+        if valid_mailbox:
+            self.wait(lambda s: s and s[6] == "ready")
 
     def send(self, text):
         os.write(self.master, text.encode())
+
+    def drained(self, timeout=4):
+        """Wait until ZLE has consumed the pending mailbox notification."""
+        fd = os.open(self.root / "notify", os.O_RDONLY | os.O_NONBLOCK)
+        try:
+            end = time.monotonic() + timeout
+            while time.monotonic() < end:
+                if not select.select([fd], [], [], 0.02)[0]:
+                    return True
+            return False
+        finally:
+            os.close(fd)
+
+    def wait_file(self, path, timeout=4):
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            self.pump()
+            if path.exists():
+                return
+            time.sleep(0.01)
+        raise AssertionError("file not written: " + repr(path) + " output=" + repr(bytes(self.output[-2500:])))
+
+    def pump(self):
+        if select.select([self.master], [], [], 0.02)[0]:
+            try:
+                self.output.extend(os.read(self.master, 65536))
+            except BlockingIOError:
+                pass
 
     def state(self):
         try:
@@ -51,11 +82,7 @@ class Shell:
     def wait(self, predicate, timeout=4):
         end = time.monotonic() + timeout
         while time.monotonic() < end:
-            if select.select([self.master], [], [], 0.02)[0]:
-                try:
-                    self.output.extend(os.read(self.master, 65536))
-                except BlockingIOError:
-                    pass
+            self.pump()
             state = self.state()
             if state and state[6] == "armed" and state[11] in self.commit_keys:
                 self.send(self.commit_keys.pop(state[11]))
@@ -138,15 +165,6 @@ class ZLETests(unittest.TestCase):
         state = self.shell.wait(lambda s: s and s[11] == identity)
         self.assertEqual(state[12], "rejected")
 
-    def test_history_can_be_used_after_native_submission(self):
-        for text in ["echo first", "echo second"]:
-            old = self.shell.state()
-            identity = self.shell.request("submit", text)
-            self.shell.wait(lambda s: s and s[11] == identity and s[6] == "ready" and s[4] != old[4])
-        identity = self.shell.request("previous")
-        state = self.shell.wait(lambda s: s and s[11] == identity)
-        self.assertEqual(state[7], "echo second")
-
     def test_armed_submission_can_be_cancelled_without_execution(self):
         identity = self.shell.request("submit", "touch NEVER", auto_commit=False)
         armed = self.shell.wait(lambda s: s and s[6] == "armed")
@@ -159,10 +177,28 @@ class ZLETests(unittest.TestCase):
         self.shell.wait(lambda s: (self.shell.root / "restored").exists())
 
     def test_wrong_token_never_changes_shell_buffer(self):
-        self.shell.request("terminal", "touch NEVER", token="wrong")
-        time.sleep(0.05)
-        self.assertEqual(self.shell.state()[7], "")
+        old = self.shell.state()
+        self.shell.request("terminal", "touch NEVER", token="wrong", snapshot=old)
+        self.assertTrue(self.shell.drained())
+        # A valid request with the pre-race snapshot must still be accepted. If the
+        # wrong token had published a buffer change, this snapshot would be stale.
+        identity = self.shell.request("terminal", old[7], snapshot=old)
+        state = self.shell.wait(lambda s: s and s[11] == identity)
+        self.assertEqual(state[12], "accepted")
+        self.assertEqual(state[7], old[7])
         self.assertFalse((self.shell.root / "NEVER").exists())
+
+    def test_failed_mailbox_install_does_not_export_the_mailbox_path(self):
+        broken = Shell(valid_mailbox=False)
+        self.addCleanup(broken.close)
+        probe = broken.root / "probe"
+        broken.send(
+            "print -r -- \"${BOOME_INPUT_DIR-unset}:${_boome_input_dir-unset}\" > "
+            + shlex.quote(str(probe)) + "\n"
+        )
+        broken.wait_file(probe)
+        self.assertEqual(probe.read_text().strip(), "unset:unset")
+        self.assertFalse((broken.root / "state").exists())
 
     def test_repeated_history_keeps_original_zsh_history_position(self):
         for text in ["echo alpha", "echo beta"]:

@@ -103,7 +103,12 @@ enum SessionArrangementTests {
         check("dangling group membership is invalid", !SessionArrangement(items: [SessionItem(id: a, groupID: group)]).isValid)
         check("empty group metadata is invalid", !SessionArrangement(groups: grouped.groups).isValid)
 
-        check("reordering does not change the active session identity", move(.tab(a), in: plain, to: .end)?.ids.contains(b) == true)
+        let reordered = move(.tab(a), in: plain, to: .end)
+        check(
+            "reordering keeps the active session selectable by identity",
+            reordered?.ids == [b, c, d, a]
+                && reordered.map { SessionArrangement.selection(afterRemoving: [b], from: $0.ids, selected: b) } == c
+        )
         check("removing an inactive session retains the active identity", SessionArrangement.selection(afterRemoving: [a], from: plain.ids, selected: c) == c)
         check("the next surviving neighbor replaces a moved active group member", SessionArrangement.selection(afterRemoving: [a, b, c], from: plain.ids, selected: b) == d)
         check("the previous surviving neighbor replaces the last active member", SessionArrangement.selection(afterRemoving: [c, d], from: plain.ids, selected: d) == b)

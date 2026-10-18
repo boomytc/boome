@@ -28,11 +28,10 @@ final class GhosttyHost: NSObject {
         case notAllowed
         case resizeHorizontal
         case resizeVertical
-        case hidden
 
         var cursor: NSCursor {
             switch self {
-            case .arrow, .hidden: NSCursor.arrow
+            case .arrow: NSCursor.arrow
             case .text: NSCursor.iBeam
             case .crosshair: NSCursor.crosshair
             case .pointingHand: NSCursor.pointingHand

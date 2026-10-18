@@ -448,11 +448,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         applySidebarWidth(animated: true)
     }
 
-    /// The system tab command stays in this window.
-    @objc override func newWindowForTab(_ sender: Any?) {
-        newTab()
-    }
-
     func newTab() {
         guard workspace?.isPreparingTermination != true, canMoveSessions,
               let tab = createTab(replacingLast: false) else { return }
@@ -899,12 +894,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         addAction("New Tab", to: menu) { [weak self] in self?.newTab() }
         addAction("Close Tab", to: menu) { [weak self] in self?.requestClose(ids: [id]) }
         addAction("Close Other Tabs", to: menu, enabled: tabs.count > 1) { [weak self] in
-            guard let self else { return }
-            self.requestClose(ids: self.tabs.map(\.id).filter { $0 != id })
+            guard let self, let index = self.tabs.firstIndex(where: { $0.id == id }) else { return }
+            let list = TabList(ids: self.tabs.map(\.id), selected: self.selected)
+            self.requestClose(ids: list.requestingCloseOthers(keeping: index))
         }
         addAction("Close Tabs to the Right", to: menu, enabled: index < tabs.count - 1) { [weak self] in
             guard let self, let index = self.tabs.firstIndex(where: { $0.id == id }) else { return }
-            self.requestClose(ids: Array(self.tabs.dropFirst(index + 1).map(\.id)))
+            let list = TabList(ids: self.tabs.map(\.id), selected: self.selected)
+            self.requestClose(ids: list.requestingCloseRight(of: index))
         }
         menu.addItem(.separator())
         addAction("New Group", to: menu) { [weak self] in

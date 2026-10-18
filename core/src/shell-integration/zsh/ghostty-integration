@@ -449,7 +449,10 @@ _ghostty_deferred_init() {
         precmd_functions=(${precmd_functions:#_ghostty_deferred_init})
     fi
 
-    if [[ -n $BOOME_INPUT_DIR ]]; then
+    # Only source the Boome bridge when the app supplied a mailbox and the
+    # installed resource exists; a partial install must not break new shells.
+    if [[ -n ${BOOME_INPUT_DIR-} && -n ${GHOSTTY_RESOURCES_DIR-} &&
+          -f $GHOSTTY_RESOURCES_DIR/shell-integration/zsh/boome-input ]]; then
         builtin source "$GHOSTTY_RESOURCES_DIR/shell-integration/zsh/boome-input"
     fi
 

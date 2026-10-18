@@ -28,11 +28,6 @@ struct TabList: Equatable {
         return ids[selected]
     }
 
-    mutating func append(_ id: TabID) {
-        ids.append(id)
-        selected = ids.count - 1
-    }
-
     enum CloseEffect: Equatable {
         /// The visible tab is still the one that was selected.
         case removedNonSelected(visible: TabID)

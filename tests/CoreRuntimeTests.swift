@@ -95,10 +95,10 @@ func check(_ name: String, _ condition: @autoclosure () -> Bool) throws {
         try check("program still receives ordinary terminal input", host.performBinding(originalSurface, "text:reply-from-program\\r"))
         try check("interactive input is not intercepted by command editor", wait { (try? String(contentsOf: root.appendingPathComponent("reply.txt"))) == "reply-from-program" })
         try check("command editor restores after program returns", wait { commandInput.expanded })
-        func shell(_ text: String) throws {
-            try check("terminal text binding accepted", host.performBinding(originalSurface, "text:" + text + "\\r"))
+        func shell(_ text: String, phase: String) throws {
+            try check("terminal text binding accepted \(phase)", host.performBinding(originalSurface, "text:" + text + "\\r"))
         }
-        try shell("BOOME_PROBE=state-kept; echo \"$BOOME_PROBE:$$\" > '" + root.appendingPathComponent("before.txt").path + "'")
+        try shell("BOOME_PROBE=state-kept; echo \"$BOOME_PROBE:$$\" > '" + root.appendingPathComponent("before.txt").path + "'", phase: "before transfer")
         try check("original shell responds", wait { FileManager.default.fileExists(atPath: root.appendingPathComponent("before.txt").path) })
         let before = try String(contentsOf: root.appendingPathComponent("before.txt"))
         let editor = descendants(source.window!.contentView!, FileEditorView.self)[0]
@@ -134,7 +134,7 @@ func check(_ name: String, _ condition: @autoclosure () -> Bool) throws {
         commandInput.textDidChange(Notification(name: NSText.didChangeNotification))
         try check("clearing draft releases close confirmation", !originalSurface.commandInput!.hasDraft)
         try check("unsaved source remains independent", text.string == "unsaved source buffer\n" && editor.hasUnsavedChanges)
-        try shell("echo \"$BOOME_PROBE:$$\" > '" + root.appendingPathComponent("after.txt").path + "'")
+        try shell("echo \"$BOOME_PROBE:$$\" > '" + root.appendingPathComponent("after.txt").path + "'", phase: "after transfer")
         try check("transferred shell keeps PID and local variable", wait { (try? String(contentsOf: root.appendingPathComponent("after.txt"))) == before })
         var saved = false
         editor.save { saved = $0 }

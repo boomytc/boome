@@ -2,15 +2,18 @@
 _boome_input_install() {
     builtin emulate -L zsh -o no_aliases -o no_warn_create_global
     [[ -o interactive && -o multibyte && -n $BOOME_INPUT_DIR ]] || builtin return
+    # Drop the per-surface path even when installation cannot proceed. A nested
+    # shell must not inherit it and watch the same mailbox as this one.
+    builtin local mailbox=$BOOME_INPUT_DIR
+    builtin unset BOOME_INPUT_DIR
     (( ! ${+_boome_input_dir} )) || builtin return
-    [[ -d $BOOME_INPUT_DIR && ! -L $BOOME_INPUT_DIR &&
-       -p $BOOME_INPUT_DIR/notify && ! -L $BOOME_INPUT_DIR/notify &&
-       -f $BOOME_INPUT_DIR/token && ! -L $BOOME_INPUT_DIR/token ]] || builtin return
+    [[ -d $mailbox && ! -L $mailbox &&
+       -p $mailbox/notify && ! -L $mailbox/notify &&
+       -f $mailbox/token && ! -L $mailbox/token ]] || builtin return
     builtin zmodload zsh/system && builtin zmodload zsh/files &&
         builtin zmodload zsh/datetime || builtin return
     builtin autoload -Uz add-zle-hook-widget
-    builtin typeset -g _boome_input_dir=$BOOME_INPUT_DIR
-    builtin unset BOOME_INPUT_DIR
+    builtin typeset -g _boome_input_dir=$mailbox
     builtin typeset -g _boome_input_token="$(<$_boome_input_dir/token)"
     builtin typeset -g _boome_input_generation="${EPOCHREALTIME}_${RANDOM}"
     builtin typeset -gi _boome_input_epoch=0 _boome_input_revision=0 _boome_input_suspended=0 _boome_input_search_active=0

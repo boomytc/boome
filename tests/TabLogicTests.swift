@@ -288,10 +288,6 @@ enum TabLogicTests {
             LibraryActionRoute.close(tag: closeWindow) == .window
         )
         check(
-            "close window action is not a tab close",
-            LibraryActionRoute.close(tag: closeWindow) != .tab && closeWindow != closeTab
-        )
-        check(
             "quit is not routed as a tab or window close",
             LibraryActionRoute.close(tag: quit) == nil
         )
@@ -300,7 +296,10 @@ enum TabLogicTests {
     /// Ordinals of `ghostty_action_tag_e` in the owned core header. The route
     /// function is then called with those values.
     static func ghosttyActionTags() -> [String: UInt32] {
-        let path = "core/include/ghostty.h"
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let path = root.appendingPathComponent("core/include/ghostty.h").path
         guard let text = try? String(contentsOfFile: path, encoding: .utf8),
               let quit = text.range(of: "\n  GHOSTTY_ACTION_QUIT,"),
               let end = text.range(of: "} ghostty_action_tag_e;", range: quit.lowerBound..<text.endIndex) else {
@@ -434,10 +433,6 @@ enum TabLogicTests {
         check(
             "an ordinary key is not owned by the app",
             !AppShortcut.owns(chord(key: "a", keyCode: 0))
-        )
-        check(
-            "option command t is not an app shortcut",
-            !AppShortcut.owns(chord(command: true, option: true, key: "t"))
         )
     }
 }

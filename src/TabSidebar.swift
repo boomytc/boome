@@ -277,10 +277,6 @@ private final class TabRowView: NSView, NSDraggingSource {
         let palette = NSImage.SymbolConfiguration(paletteColors: [color])
         return symbol?.withSymbolConfiguration(size.applying(palette))
     }
-
-    @objc private func closePressed(_ sender: Any?) {
-        onClose?()
-    }
 }
 
 /// Weak action: no resting fill, so the selected tab is the only solid shape.

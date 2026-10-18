@@ -162,3 +162,11 @@ Swift + AppKit。生产代码的 `ghostty_*` 调用都在 `src/GhosttyHost.swift
 本轮通过：252 项 Swift 检查；34 项 Python 检查（20 项构建支持、14 项真实 zsh／PTY 协议）；257 项核心定向检查；45 项真实库／控制器运行时检查；17 项真实窗口 CGEvent 交互检查；3 项 bash 回退检查。运行时覆盖原 shell PID／变量、Unicode 提交、运行程序输入不被截获、跨窗携带命令草稿／选区／独立撤销管理器、文件编辑缓冲独立，以及退出批准／取消。实窗检查覆盖自动焦点、点击定位、拖选、替换、撤销、双击词、三击行、Shift 扩选、Unicode 粘贴、Shift+Enter 换行和点击 Run 后恢复输入。
 
 输入法预编辑防误提交和关闭保护由 AppKit 接口检查覆盖；未将 Unicode 粘贴说成中文拼音候选全流程实测。没有重做跨屏、物理鼠标连续跨窗拖拽、fzf／vim 或任意 zsh 插件组合的人工验收。保留非 zsh、远程和应用自身输入的普通终端路径；不提供跨应用重启的命令草稿恢复。
+
+### 2026-10-18：测试审计与遗留代码清理
+
+逐符号核对 `src/`、`tests/`、`scripts/` 与 `core/` 中的 Boome 自有改动，删除生产无调用且无测试覆盖的 `TabList.append`、`BoomeChrome.accent` 与 `icon(pointSize:)`、没有 selector 的 `TabRowView.closePressed`、从不构造的 `CursorStyle.hidden`、只写不读的 `TerminalSurfaceView.cursorHidden`、关闭 AppKit tabbing 后无入口的 `newWindowForTab`，以及与 `paste` 实现完全相同的 `pasteAsPlainText`。标签右键菜单改为调用既有的 `TabList.requestingCloseOthers`／`requestingCloseRight`，消除“测试覆盖的 API 与生产内联实现分叉”。
+
+测试侧删除重复的“close window 不是 tab close”、已移除 ⌥⌘T 的墓碑断言，以及与重复历史用例同覆盖的 zsh 用例；重排断言改为校验真实顺序和替选身份，自然排序断言不再强解包，原子保存用例用硬链接证明写时替换，`ghostty.h` 改为按 `#filePath` 定位，zsh 用例去掉固定 sleep 并新增“安装失败不导出邮箱路径”回归。修正 `boome-input` 在邮箱校验失败时把 `BOOME_INPUT_DIR` 留给子进程的问题，并为 `ghostty-integration` 加载桥接模块增加资源存在性检查。
+
+本轮验证：250 项 Swift 检查；20 项构建支持检查；14 项真实 zsh／PTY 协议检查；45 项真实库／控制器运行时检查；17 项真实窗口 CGEvent 交互检查；3 项 bash 回退检查。核心因 shell integration 变化实际重编并重新链接应用，随后不变构建复用。未删除上游保留且当前无构建入口的 `core/src/lib_vt.zig` 与 `core/src/build/Config.zig` 执行项，避免扩大与上游的源码偏离；`build/` 下未跟踪的旧重打包目录（约 344 MB）已确认被忽略，未作为代码清理删除。未重做物理鼠标跨窗拖拽、跨屏或任意 zsh 插件组合的人工验收。

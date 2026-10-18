@@ -21,7 +21,12 @@ enum ProjectExplorerTests {
             try fm.createSymbolicLink(at: link, withDestinationURL: root)
             let entries = try ProjectFiles.children(of: root, showHidden: false)
             check("project folders sort before files", entries.first?.url == sources)
-            check("project files use natural numeric sorting", entries.firstIndex(where: { $0.name == "file2.txt" })! < entries.firstIndex(where: { $0.name == "file10.txt" })!)
+            let names = entries.map(\.name)
+            if let two = names.firstIndex(of: "file2.txt"), let ten = names.firstIndex(of: "file10.txt") {
+                check("project files use natural numeric sorting", two < ten)
+            } else {
+                check("project files use natural numeric sorting (missing fixture entries: \(names))", false)
+            }
             check("hidden files are hidden by default", !entries.contains(where: { $0.name == ".hidden" }))
             check("hidden files can be shown", try ProjectFiles.children(of: root, showHidden: true).contains(where: { $0.name == ".hidden" }))
             check("directory symlinks are leaves, preventing cycles", entries.first(where: { $0.name == "loop" }).map { $0.isSymbolicLink && !$0.isDirectory } == true)
@@ -45,8 +50,17 @@ enum ProjectExplorerTests {
             let file = root.appendingPathComponent("file2.txt")
             var document = try ProjectTextFile.read(file)
             check("UTF-8 text loads without modification", document.savedText == "hello\n")
+            // A hard link to the old inode must keep the old bytes: that only holds
+            // when save replaces the file instead of truncating it in place.
+            let snapshot = root.appendingPathComponent("file2.snapshot")
+            try fm.linkItem(at: file, to: snapshot)
             try document.save("changed 中文\n")
-            check("edited UTF-8 text saves atomically", try String(contentsOf: file, encoding: .utf8) == "changed 中文\n" && document.savedText == "changed 中文\n")
+            let savedBytes = try String(contentsOf: file, encoding: .utf8)
+            let linkedBytes = try String(contentsOf: snapshot, encoding: .utf8)
+            check(
+                "edited UTF-8 text saves atomically",
+                savedBytes == "changed 中文\n" && document.savedText == "changed 中文\n" && linkedBytes == "hello\n"
+            )
             try Data("external\n".utf8).write(to: file)
             check("save detects an external edit", fails { try document.save("local\n") })
             check("external edits are not silently overwritten", try String(contentsOf: file, encoding: .utf8) == "external\n")
