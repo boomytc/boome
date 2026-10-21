@@ -12,6 +12,7 @@ enum TabLogicTests {
         navigation()
         closeActions()
         presentation()
+        gitChanges()
         fills()
         pulse()
         shortcuts()
@@ -357,6 +358,221 @@ enum TabLogicTests {
             "same directory name keeps a different parent",
             src.primary == "app" && lib.primary == "app" && src.secondary != lib.secondary
         )
+
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let directory = home + "/workspace/boome"
+        let located = TabPresentation.make(label: "ignored", customTitle: false, directory: directory)
+        check(
+            "a working directory is a title and a friendly path",
+            located.primary == "boome" && located.secondary == "~/workspace/boome"
+        )
+        let renamed = TabPresentation.make(label: "Notes", customTitle: true, directory: directory)
+        check(
+            "a custom title keeps the path line",
+            renamed.primary == "Notes" && renamed.secondary == "~/workspace/boome"
+        )
+    }
+
+    static func gitChanges() {
+        let addedAndRemoved = GitChangeCount(filesChanged: 2, linesAdded: 12, linesRemoved: 3)
+        check(
+            "change tokens put additions before deletions",
+            addedAndRemoved.tokens == [.added(12), .removed(3)] && addedAndRemoved.accessibilityMark == "+12 -3"
+        )
+        let removedOnly = GitChangeCount(filesChanged: 1, linesAdded: 0, linesRemoved: 4)
+        check("a deletion-only change is one token", removedOnly.tokens == [.removed(4)])
+        let binary = GitChangeCount(filesChanged: 1, linesAdded: 0, linesRemoved: 0)
+        check(
+            "a binary change shows zero",
+            binary.showsBadge && binary.tokens == [.zero]
+        )
+        let clean = GitChangeCount(filesChanged: 0, linesAdded: 0, linesRemoved: 0)
+        check("a clean worktree has no badge", !clean.showsBadge)
+
+        let porcelain = Data((
+            "# branch.oid abcdef\0"
+                + "1 .M N... 100644 100644 100644 aaa bbb src/A.swift\0"
+                + "? new file.txt\0"
+                + "2 R. N... 100644 100644 100644 aaa bbb R090 src/New.swift\0"
+                + "src/Old.swift\0"
+        ).utf8)
+        let numstat = """
+        4\t1\tsrc/A.swift
+        3\t0\tsrc/{Old => New}.swift
+        2\t0\t"quoted name.swift"
+
+        """
+        let count = GitChangeCount.aggregate(porcelain: porcelain, numstat: numstat) { path in
+            path == "new file.txt" ? 2 : 0
+        }
+        check(
+            "porcelain and numstat add tracked lines and untracked newlines",
+            count.filesChanged == 3 && count.linesAdded == 9 && count.linesRemoved == 1,
+            "files=\(count.filesChanged) added=\(count.linesAdded) removed=\(count.linesRemoved)"
+        )
+        check(
+            "a rename destination is the numstat key",
+            GitNumstat.destination(of: "src/{Old => New}.swift") == "src/New.swift"
+                && GitNumstat.destination(of: "old => new") == "new"
+        )
+        check(
+            "quoted numstat paths unescape",
+            GitQuotedPath.unquote(#""my file.swift""#) == "my file.swift"
+                && GitNumstat.parse("2\t0\t\"my file.swift\"\n")["my file.swift"]?.added == 2
+        )
+
+        let headed = Data(("# branch.head main\0" + "# branch.oid abcdef0123456789\0").utf8)
+        check("porcelain reports the branch name", GitStatusList.branch(in: headed) == "main")
+        let detached = Data(("# branch.head (detached)\0" + "# branch.oid 0123456789abcdef\0").utf8)
+        check("a detached head uses the short commit", GitStatusList.branch(in: detached) == "0123456")
+
+        let bounds = NSRect(x: 0, y: 0, width: 200, height: 34)
+        let plain = TabRowLayout.make(hasPath: false, hasBranch: false, changes: nil, in: bounds, left: 12)
+        check(
+            "a row without changes keeps the title inset",
+            plain.badge == nil && plain.menu == nil && plain.close == nil
+                && plain.path == nil && plain.title == NSRect(x: 12, y: 8, width: 176, height: 18)
+        )
+        check(
+            "title actions appear only while the pointer is on the row",
+            !TabChrome.showsTitleActions(hovered: false) && TabChrome.showsTitleActions(hovered: true)
+        )
+        let closed = TabRowLayout.make(
+            hasPath: true,
+            hasBranch: false,
+            changes: nil,
+            showsTitleActions: true,
+            in: NSRect(x: 0, y: 0, width: 200, height: 46),
+            left: 12
+        )
+        check(
+            "hover actions sit on the title line and leave the path full width",
+            closed.path == NSRect(x: 12, y: 26, width: 176, height: 14)
+                && closed.menu == NSRect(x: 156, y: 7, width: 16, height: 16)
+                && closed.close == NSRect(x: 176, y: 7, width: 16, height: 16)
+                && closed.title.maxX + 6 <= (closed.menu?.minX ?? 0)
+                && (closed.menu?.maxY ?? 0) <= closed.title.maxY
+        )
+        let three = NSRect(x: 0, y: 0, width: 200, height: 62)
+        let withBadge = TabRowLayout.make(
+            hasPath: true,
+            hasBranch: true,
+            changes: addedAndRemoved,
+            showsTerminalIcon: true,
+            showsTitleActions: true,
+            in: three,
+            left: 12
+        )
+        let resting = TabRowLayout.make(
+            hasPath: true,
+            hasBranch: true,
+            changes: addedAndRemoved,
+            showsTerminalIcon: true,
+            in: three,
+            left: 12
+        )
+        check(
+            "the change pill stays on the branch line while title actions appear",
+            withBadge.badge != nil
+                && withBadge.path != nil
+                && withBadge.branch != nil
+                && withBadge.menu != nil
+                && withBadge.close != nil
+                && withBadge.badge == resting.badge
+                && withBadge.path == resting.path
+                && withBadge.title.maxX < resting.title.maxX
+                && (withBadge.path?.maxY ?? 0) <= (withBadge.branch?.minY ?? 0)
+                && (withBadge.close?.maxY ?? 0) <= withBadge.title.maxY
+                && (withBadge.branch?.maxX ?? 0) <= (withBadge.badge?.minX ?? 0)
+        )
+        let addition = GitChangeBadge.addition.usingColorSpace(.sRGB)
+        let deletion = GitChangeBadge.deletion.usingColorSpace(.sRGB)
+        check(
+            "addition and deletion use the default ANSI green and red",
+            addition.map { abs($0.redComponent - 181.0 / 255.0) < 0.01 && abs($0.greenComponent - 189.0 / 255.0) < 0.01 && abs($0.blueComponent - 104.0 / 255.0) < 0.01 } == true
+                && deletion.map { abs($0.redComponent - 204.0 / 255.0) < 0.01 && abs($0.greenComponent - 102.0 / 255.0) < 0.01 && abs($0.blueComponent - 102.0 / 255.0) < 0.01 } == true
+        )
+        let fill = GitChangeBadge.fill(on: BoomeChrome.fallbackBackground)
+        check("the pill fill is a 5 percent foreground", abs(fill.alphaComponent - 0.05) < 0.001)
+
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("boome-git-count-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        do {
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            let outside = FileManager.default.temporaryDirectory.appendingPathComponent("boome-not-a-repo-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: outside) }
+            check("a directory that is not a repository has no count", GitChangeQuery.load(workingDirectory: outside.path) == nil)
+
+            check("git init", git(["init", "-b", "main"], in: root) == 0)
+            try Data([0x61, 0x00, 0x62]).write(to: root.appendingPathComponent("binary.dat"))
+            let binaryOnly = GitChangeQuery.load(workingDirectory: root.path)
+            check(
+                "an untracked binary file shows zero lines",
+                binaryOnly?.status.branch == "main"
+                    && binaryOnly?.status.count.filesChanged == 1
+                    && binaryOnly?.status.count.linesAdded == 0
+                    && binaryOnly?.status.count.linesRemoved == 0
+                    && binaryOnly?.status.count.tokens == [.zero],
+                "\(String(describing: binaryOnly))"
+            )
+
+            try Data("hello\nworld\n".utf8).write(to: root.appendingPathComponent("my file.txt"))
+            let untracked = GitChangeQuery.load(workingDirectory: root.path)
+            check(
+                "untracked text adds its newline count",
+                untracked?.status.count.filesChanged == 2 && untracked?.status.count.linesAdded == 2 && untracked?.status.count.linesRemoved == 0,
+                "\(String(describing: untracked))"
+            )
+
+            check("git add", git(["add", "binary.dat", "my file.txt"], in: root) == 0)
+            check("git commit", git(["-c", "user.name=Boome", "-c", "user.email=boome@example.com", "commit", "-m", "init"], in: root) == 0)
+            let committed = GitChangeQuery.load(workingDirectory: root.path)
+            check(
+                "a clean worktree hides the badge",
+                committed?.status.count.showsBadge == false && committed?.status.branch == "main",
+                "\(String(describing: committed))"
+            )
+
+            try Data("hello\nWORLD\n".utf8).write(to: root.appendingPathComponent("my file.txt"))
+            let edited = GitChangeQuery.load(workingDirectory: root.path)
+            check(
+                "an edited tracked file reports both sides",
+                edited?.status.count.filesChanged == 1 && edited?.status.count.linesAdded == 1 && edited?.status.count.linesRemoved == 1,
+                "\(String(describing: edited))"
+            )
+            let nested = root.appendingPathComponent("nested")
+            try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+            let fromNested = GitChangeQuery.load(workingDirectory: nested.path)
+            let sameRoot = fromNested.map {
+                URL(fileURLWithPath: $0.root).resolvingSymlinksInPath().path
+                    == root.resolvingSymlinksInPath().path
+            } == true
+            check(
+                "a subdirectory uses the worktree total",
+                sameRoot && fromNested?.status == edited?.status,
+                "root=\(fromNested?.root ?? "") count=\(String(describing: fromNested?.status))"
+            )
+        } catch {
+            check("git change fixture", false, "\(error)")
+        }
+    }
+
+    @discardableResult
+    private static func git(_ arguments: [String], in directory: URL) -> Int32 {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = arguments
+        process.currentDirectoryURL = directory
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            return -1
+        }
+        process.waitUntilExit()
+        return process.terminationStatus
     }
 
     static func fills() {

@@ -278,10 +278,10 @@ enum SelectionPulse {
     }
 }
 
-/// Close mark only on the row the pointer is on, or the row that is selected.
+/// Title-line menu and close marks. They appear while the pointer is on the row.
 enum TabChrome {
-    static func showsClose(selected: Bool, hovered: Bool) -> Bool {
-        selected || hovered
+    static func showsTitleActions(hovered: Bool) -> Bool {
+        hovered
     }
 }
 
@@ -317,19 +317,52 @@ struct TabPresentation: Equatable {
     var secondary: String?
     var accessibility: String
 
-    static func rowHeight(hasSecondary: Bool) -> CGFloat {
-        hasSecondary ? 46 : 34
+    static func rowHeight(hasPath: Bool, hasBranch: Bool) -> CGFloat {
+        switch (hasPath, hasBranch) {
+        case (true, true): return 62
+        case (false, false): return 34
+        default: return 46
+        }
     }
 
-    static func make(label: String, customTitle: Bool) -> TabPresentation {
+    static func make(label: String, customTitle: Bool, directory: String? = nil) -> TabPresentation {
         let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base: TabPresentation
         if customTitle {
-            return TabPresentation(primary: label, secondary: nil, accessibility: label)
+            base = TabPresentation(primary: label, secondary: nil, accessibility: label)
+        } else if let split = splitShellTitle(trimmed) ?? splitPath(trimmed) {
+            base = split
+        } else {
+            base = TabPresentation(primary: label, secondary: nil, accessibility: label)
         }
-        if let split = splitShellTitle(trimmed) ?? splitPath(trimmed) {
-            return split
+        return applying(directory, to: base, keepTitle: customTitle)
+    }
+
+    /// A known working directory draws the folder name and the friendly path.
+    /// A custom title stays on the first line. The path still occupies the second.
+    private static func applying(_ directory: String?, to row: TabPresentation, keepTitle: Bool) -> TabPresentation {
+        guard let directory else { return row }
+        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return row }
+        let path = friendlyPath(trimmed)
+        var next = row
+        if !keepTitle {
+            let name = directoryName(trimmed)
+            if !name.isEmpty { next.primary = name }
         }
-        return TabPresentation(primary: label, secondary: nil, accessibility: label)
+        next.secondary = path == next.primary ? nil : path
+        if let path = next.secondary, !next.accessibility.contains(path) {
+            next.accessibility += " · " + path
+        }
+        return next
+    }
+
+    static func friendlyPath(_ path: String) -> String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        if path == home { return "~" }
+        let prefix = home.hasSuffix("/") ? home : home + "/"
+        if path.hasPrefix(prefix) { return "~/" + path.dropFirst(prefix.count) }
+        return path
     }
 
     /// Rows that still draw the same two lines get a quiet second line:

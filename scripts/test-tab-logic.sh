@@ -16,6 +16,7 @@ swiftc \
   -framework AppKit \
   -o "$out" \
   "$root/src/TabLogic.swift" \
+  "$root/src/GitChangeCount.swift" \
   "$root/src/SessionArrangement.swift" \
   "$root/src/SessionDragViews.swift" \
   "$root/src/TabSidebar.swift" \

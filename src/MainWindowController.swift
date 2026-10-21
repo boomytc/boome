@@ -208,6 +208,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private let host = GhosttyHost.shared
+    private let gitChanges = GitChangeMonitor()
     private let sidebar = TabSidebar()
     private let sidebarToggle = SidebarToggleButton(frame: NSRect(x: 0, y: 0, width: 28, height: 28))
     private let explorerToggle = SidebarToggleButton(frame: NSRect(x: 0, y: 0, width: 28, height: 28), panel: .explorer)
@@ -376,6 +377,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         super.init(window: window)
         window.delegate = self
         buildChrome()
+        gitChanges.onUpdate = { [weak self] in self?.reloadSidebar() }
         restoreChrome()
         if initialTab { newTab() }
         appearanceObserver = NSApp.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, _ in
@@ -756,10 +758,19 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func reloadSidebar(pulse: Bool = false) {
+        gitChanges.note(directories: tabs.map(\.workingDirectory))
         let rows = TabPresentation.disambiguate(
-            tabs.map { TabPresentation.make(label: $0.label, customTitle: $0.tabTitle != nil) }
+            tabs.map {
+                TabPresentation.make(label: $0.label, customTitle: $0.tabTitle != nil, directory: $0.workingDirectory)
+            }
         )
-        sidebar.reload(arrangement: arrangement, rows: rows, selected: selectedTabID, pulse: pulse)
+        var git: [TabID: GitWorktreeStatus] = [:]
+        for tab in tabs {
+            if let status = gitChanges.status(forWorkingDirectory: tab.workingDirectory) {
+                git[tab.id] = status
+            }
+        }
+        sidebar.reload(arrangement: arrangement, rows: rows, git: git, selected: selectedTabID, pulse: pulse)
         syncWindowTitles()
     }
 

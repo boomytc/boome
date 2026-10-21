@@ -209,6 +209,8 @@ swiftc \
   "$root/src/AppDelegate.swift" \
   "$root/src/BoomeChrome.swift" \
   "$root/src/TabLogic.swift" \
+  "$root/src/GitChangeCount.swift" \
+  "$root/src/GitChangeMonitor.swift" \
   "$root/src/SessionArrangement.swift" \
   "$root/src/SessionDragViews.swift" \
   "$root/src/TabSidebar.swift" \

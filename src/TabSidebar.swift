@@ -35,10 +35,14 @@ private final class TabRowView: NSView, NSDraggingSource {
     var canClose = true
     private var downEvent: NSEvent?
     private var pressedClose = false
+    private var pressedMenu = false
     private var dragging = false
     private var dragToken: String?
 
     private var model = TabPresentation(primary: "", secondary: nil, accessibility: "")
+    private var branch: String?
+    private var changes: GitChangeCount?
+    private var showsTerminalIcon = false
     private var surfaceBackground = BoomeChrome.fallbackBackground
     private var selected = false
     private var hovered = false
@@ -64,6 +68,10 @@ private final class TabRowView: NSView, NSDraggingSource {
                 self?.onClose?()
                 return true
             },
+            NSAccessibilityCustomAction(name: "Show Menu") { [weak self] in
+                self?.showMenu(at: self?.layout.menu)
+                return true
+            },
         ])
     }
 
@@ -72,22 +80,41 @@ private final class TabRowView: NSView, NSDraggingSource {
         fatalError("init(coder:) is not used")
     }
 
-    func show(_ model: TabPresentation, selected: Bool, background: NSColor, animated: Bool) {
+    func show(
+        _ model: TabPresentation,
+        git: GitWorktreeStatus? = nil,
+        showsTerminalIcon: Bool = false,
+        selected: Bool,
+        background: NSColor,
+        animated: Bool
+    ) {
         let selectionChanged = self.selected != selected
         self.model = model
+        self.branch = git?.branch
+        self.changes = git?.count
+        self.showsTerminalIcon = showsTerminalIcon
         self.selected = selected
         surfaceBackground = background
-        toolTip = model.accessibility
-        setAccessibilityLabel(model.accessibility)
+        let label = Self.accessibilityLabel(model.accessibility, branch: branch, changes: changes)
+        toolTip = label
+        setAccessibilityLabel(label)
         setAccessibilitySelected(selected)
-        heightConstraint?.constant = TabPresentation.rowHeight(hasSecondary: model.secondary != nil)
+        heightConstraint?.constant = rowHeight
         applyChrome(animated: animated && selectionChanged)
     }
 
     func pinHeight() {
-        let constraint = heightAnchor.constraint(equalToConstant: TabPresentation.rowHeight(hasSecondary: model.secondary != nil))
+        let constraint = heightAnchor.constraint(equalToConstant: rowHeight)
         constraint.isActive = true
         heightConstraint = constraint
+    }
+
+    private var hasBranchLine: Bool {
+        branch?.isEmpty == false || changes?.showsBadge == true
+    }
+
+    private var rowHeight: CGFloat {
+        TabPresentation.rowHeight(hasPath: model.secondary != nil, hasBranch: hasBranchLine)
     }
 
     /// Keyboard landing. A brief lift, then back to the selection fill.
@@ -145,11 +172,13 @@ private final class TabRowView: NSView, NSDraggingSource {
     override func mouseDown(with event: NSEvent) {
         downEvent = event
         dragging = false
-        pressedClose = showsClose && closeHitRect.contains(convert(event.locationInWindow, from: nil))
+        let point = convert(event.locationInWindow, from: nil)
+        pressedClose = showsTitleActions && closeHitRect.contains(point)
+        pressedMenu = showsTitleActions && menuHitRect.contains(point)
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard !dragging, !pressedClose, let start = downEvent else { return }
+        guard !dragging, !pressedClose, !pressedMenu, let start = downEvent else { return }
         let delta = NSPoint(x: event.locationInWindow.x - start.locationInWindow.x, y: event.locationInWindow.y - start.locationInWindow.y)
         guard hypot(delta.x, delta.y) >= 5, let token = onBeginDrag?() else { return }
         dragToken = token
@@ -170,16 +199,20 @@ private final class TabRowView: NSView, NSDraggingSource {
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation { .move }
     func ignoreModifierKeys(for session: NSDraggingSession) -> Bool { true }
     func draggingSession(_ session: NSDraggingSession, endedAt point: NSPoint, operation: NSDragOperation) {
-        defer { dragToken = nil; downEvent = nil; dragging = false }
+        defer { dragToken = nil; downEvent = nil; dragging = false; pressedClose = false; pressedMenu = false }
         if let dragToken { onDragEnded?(dragToken, point, operation) }
     }
 
     override func mouseUp(with event: NSEvent) {
-        defer { downEvent = nil }
+        defer { downEvent = nil; pressedClose = false; pressedMenu = false }
         let point = convert(event.locationInWindow, from: nil)
         guard !dragging, bounds.contains(point) else { return }
+        if pressedMenu {
+            if showsTitleActions, menuHitRect.contains(point) { onMenu?(event) }
+            return
+        }
         if pressedClose {
-            if showsClose, closeHitRect.contains(point) { onClose?() }
+            if showsTitleActions, closeHitRect.contains(point) { onClose?() }
             return
         }
         onSelect?()
@@ -195,68 +228,144 @@ private final class TabRowView: NSView, NSDraggingSource {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let showClose = showsClose
-        let left: CGFloat = 12 + indentation
-        let right: CGFloat = showClose ? 30 : 12
-        let width = max(0, bounds.width - left - right)
-        let primaryFont = NSFont.systemFont(ofSize: 13, weight: selected ? .semibold : .medium)
-        let primaryStyle = NSMutableParagraphStyle()
-        primaryStyle.lineBreakMode = .byTruncatingTail
-        let primaryAttrs: [NSAttributedString.Key: Any] = [
-            .font: primaryFont,
-            .foregroundColor: BoomeChrome.text(selected: selected, on: surfaceBackground),
-            .paragraphStyle: primaryStyle,
-        ]
-        let hasSecondary = model.secondary != nil
-        let primaryHeight: CGFloat = 18
-        let secondaryHeight: CGFloat = hasSecondary ? 14 : 0
-        let gap: CGFloat = hasSecondary ? 2 : 0
-        let block = primaryHeight + gap + secondaryHeight
-        let top = ((bounds.height - block) / 2).rounded()
+        let layout = self.layout
+        let titleColor = BoomeChrome.text(selected: selected, on: surfaceBackground)
+        let secondaryColor = BoomeChrome.secondaryText(selected: selected, on: surfaceBackground)
+        if let icon = layout.terminalIcon {
+            Self.symbol("terminal", point: 11, color: titleColor)?.draw(in: icon, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        }
+        let titleStyle = NSMutableParagraphStyle()
+        titleStyle.lineBreakMode = .byTruncatingTail
         (model.primary as NSString).draw(
-            with: NSRect(x: left, y: top, width: width, height: primaryHeight),
+            with: layout.title,
             options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
-            attributes: primaryAttrs
-        )
-        if let secondary = model.secondary {
-            let secondaryStyle = NSMutableParagraphStyle()
-            secondaryStyle.lineBreakMode = .byTruncatingMiddle
-            let secondaryAttrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 11, weight: .regular),
-                .foregroundColor: BoomeChrome.secondaryText(selected: selected, on: surfaceBackground),
-                .paragraphStyle: secondaryStyle,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 13, weight: selected ? .semibold : .medium),
+                .foregroundColor: titleColor,
+                .paragraphStyle: titleStyle,
             ]
+        )
+        if let secondary = model.secondary, let rect = layout.path {
+            let pathStyle = NSMutableParagraphStyle()
+            pathStyle.lineBreakMode = .byTruncatingHead
             (secondary as NSString).draw(
-                with: NSRect(x: left, y: top + primaryHeight + gap, width: width, height: secondaryHeight),
+                with: rect,
                 options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
-                attributes: secondaryAttrs
+                attributes: [
+                    .font: NSFont.systemFont(ofSize: 11, weight: .regular),
+                    .foregroundColor: secondaryColor,
+                    .paragraphStyle: pathStyle,
+                ]
             )
         }
-        guard showsClose, let symbol = TabRowView.closeImage(BoomeChrome.text(selected: selected, on: surfaceBackground)) else {
-            return
+        if let icon = layout.branchIcon {
+            Self.symbol("arrow.triangle.branch", point: 10, color: secondaryColor)?.draw(in: icon, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
         }
-        let side: CGFloat = 11
-        symbol.draw(
-            in: NSRect(
-                x: bounds.width - 14 - side,
-                y: ((bounds.height - side) / 2).rounded(),
-                width: side,
-                height: side
-            ),
-            from: .zero,
-            operation: .sourceOver,
-            fraction: 1,
-            respectFlipped: true,
-            hints: nil
+        if let branch, let rect = layout.branch, !branch.isEmpty {
+            let branchStyle = NSMutableParagraphStyle()
+            branchStyle.lineBreakMode = .byTruncatingTail
+            (branch as NSString).draw(
+                with: rect,
+                options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+                attributes: [
+                    .font: NSFont.systemFont(ofSize: 11, weight: .regular),
+                    .foregroundColor: secondaryColor,
+                    .paragraphStyle: branchStyle,
+                ]
+            )
+        }
+        if let changes, let badge = layout.badge {
+            GitChangeBadge.draw(changes, in: badge, on: surfaceBackground)
+        }
+        guard showsTitleActions else { return }
+        let mark = BoomeChrome.text(selected: selected, on: surfaceBackground)
+        if let rect = layout.menu {
+            // This system has no ellipsis.vertical symbol, so the image was nil and the button stayed blank.
+            Self.drawVerticalEllipsis(in: rect, color: mark)
+        }
+        if let rect = layout.close {
+            Self.symbol("xmark", point: 10, color: mark)?.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        }
+    }
+
+    private var layout: TabRowLayout {
+        TabRowLayout.make(
+            hasPath: model.secondary != nil,
+            hasBranch: hasBranchLine,
+            showsBranchName: branch?.isEmpty == false,
+            changes: changes,
+            showsTerminalIcon: showsTerminalIcon,
+            showsTitleActions: showsTitleActions,
+            in: bounds,
+            left: 12 + indentation
         )
     }
 
-    private var showsClose: Bool { canClose && TabChrome.showsClose(selected: selected, hovered: hovered) }
+    private var showsTitleActions: Bool { canClose && TabChrome.showsTitleActions(hovered: hovered) }
 
-    /// Wider than the glyph so the close affordance is the trailing edge, not a 10-point mark.
-    private var closeHitRect: NSRect {
-        NSRect(x: bounds.width - 36, y: 0, width: 36, height: bounds.height)
+    private func showMenu(at rect: NSRect?) {
+        guard let window else { return }
+        let anchor = rect ?? layoutShowingActions.menu
+        guard let anchor else { return }
+        let location = convert(NSPoint(x: anchor.midX, y: anchor.maxY), to: nil)
+        guard let event = NSEvent.mouseEvent(
+            with: .rightMouseDown,
+            location: location,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        ) else { return }
+        onMenu?(event)
     }
+
+    /// The menu action is available without the pointer resting on the row.
+    private var layoutShowingActions: TabRowLayout {
+        TabRowLayout.make(
+            hasPath: model.secondary != nil,
+            hasBranch: hasBranchLine,
+            showsBranchName: branch?.isEmpty == false,
+            changes: changes,
+            showsTerminalIcon: showsTerminalIcon,
+            showsTitleActions: true,
+            in: bounds,
+            left: 12 + indentation
+        )
+    }
+
+    private static func accessibilityLabel(_ title: String, branch: String?, changes: GitChangeCount?) -> String {
+        var label = title
+        if let branch, !branch.isEmpty, !label.contains(branch) {
+            label += " · " + branch
+        }
+        if let changes, changes.showsBadge {
+            label += " · " + changes.accessibilityMark
+        }
+        return label
+    }
+
+    private static func drawVerticalEllipsis(in rect: NSRect, color: NSColor) {
+        let radius: CGFloat = 1.5
+        let spacing: CGFloat = 4
+        color.setFill()
+        for index in -1...1 {
+            let center = NSPoint(x: rect.midX, y: rect.midY + CGFloat(index) * spacing)
+            NSBezierPath(ovalIn: NSRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)).fill()
+        }
+    }
+
+    private static func symbol(_ name: String, point: CGFloat, color: NSColor) -> NSImage? {
+        let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil)
+        let size = NSImage.SymbolConfiguration(pointSize: point, weight: .medium)
+        let palette = NSImage.SymbolConfiguration(paletteColors: [color])
+        return symbol?.withSymbolConfiguration(size.applying(palette))
+    }
+
+    private var menuHitRect: NSRect { layout.menu ?? .zero }
+    private var closeHitRect: NSRect { layout.close ?? .zero }
 
     private func applyChrome(animated: Bool) {
         let role: BoomeChrome.RowRole
@@ -269,13 +378,6 @@ private final class TabRowView: NSView, NSDraggingSource {
         }
         paintFill(layer, color: BoomeChrome.rowFill(role, on: surfaceBackground), animated: animated)
         needsDisplay = true
-    }
-
-    private static func closeImage(_ color: NSColor) -> NSImage? {
-        let symbol = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close Tab")
-        let size = NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
-        let palette = NSImage.SymbolConfiguration(paletteColors: [color])
-        return symbol?.withSymbolConfiguration(size.applying(palette))
     }
 }
 
@@ -467,7 +569,13 @@ final class TabSidebar: NSView {
         refreshAppearance()
     }
 
-    func reload(arrangement next: SessionArrangement, rows: [TabPresentation], selected id: TabID?, pulse: Bool = false) {
+    func reload(
+        arrangement next: SessionArrangement,
+        rows: [TabPresentation],
+        git: [TabID: GitWorktreeStatus] = [:],
+        selected id: TabID?,
+        pulse: Bool = false
+    ) {
         let presentations = Dictionary(uniqueKeysWithValues: zip(next.ids, rows))
         var visible: [SessionDragItem] = []
         var seen: Set<UUID> = []
@@ -533,7 +641,16 @@ final class TabSidebar: NSView {
                 self.synchronizeHover()
                 self.onDragEnded?(token, point, operation)
             }
-            row.show(model, selected: isSelected, background: surfaceBackground, animated: animate && !pulse)
+            let status: GitWorktreeStatus?
+            let icon: Bool
+            if case .tab(let tab) = identity {
+                status = git[tab]
+                icon = true
+            } else {
+                status = nil
+                icon = false
+            }
+            row.show(model, git: status, showsTerminalIcon: icon, selected: isSelected, background: surfaceBackground, animated: animate && !pulse)
             if rowViews[identity] == nil { row.pinHeight() }
             if pulse && isSelected { row.pulse() }
             updated[identity] = row
