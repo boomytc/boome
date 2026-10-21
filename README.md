@@ -11,7 +11,7 @@ Boome 是 macOS 终端。窗口左侧是 Boome 画的垂直标签栏，每个标
 | | |
 | --- | --- |
 | 核心源码来源 | Ghostty `v1.3.1`，`332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28` |
-| Boome 核心版本 | `1.3.1-boome.2` |
+| Boome 核心版本 | `1.3.1-boome.3` |
 | 上游已处理终点 | `a2e440396403385680008e456a741a7776091412` |
 | Zig | `0.15.2` |
 
@@ -167,7 +167,7 @@ BOOME_INPUT_FALLBACK_SMOKE=1 BOOME_TEST_SHELL=/bin/bash ./scripts/test-core-runt
 
 ### 命令输入
 
-支持的本地 zsh 在提示符编辑态显示原生命令输入框。单击定位、拖选、Shift 扩选、双击选词、三击选行、按选区替换、撤销、重做和 Unicode 输入都由 `NSTextView` 处理。Enter 执行。Shift+Enter 或 Option+Enter 换行。输入法确认候选不会直接提交。粘贴写进输入框，按 Enter 之前不执行。光标在视觉上的第一行时，上键交给 zsh 的 `up-line-or-history`。在视觉上的最后一行时，下键交给 `down-line-or-history`。其他位置仍在输入框里移动光标。Tab 把草稿交给 shell 做补全。Ctrl+R 交给 `history-incremental-search-backward`。Esc 以及 **Terminal** 同样交回。点 **Edit command** 恢复原生编辑。输入框、选区和撤销管理器属于这个会话。跨窗口搬运时不重建它们。
+支持的本地 zsh 在提示符编辑态只从底部命令框输入。上方格子呈现已经执行的命令和它的输出，当前提示符被盖住。单击定位、拖选、Shift 扩选、双击选词、三击选行、按选区替换、撤销、重做和 Unicode 输入都由 `NSTextView` 处理。Enter 执行。Shift+Enter 或 Option+Enter 换行。输入法确认候选不会直接提交。粘贴写进输入框，按 Enter 之前不执行。光标在视觉上的第一行时，上键交给 zsh 的 `up-line-or-history`。在视觉上的最后一行时，下键交给 `down-line-or-history`。其他位置仍在输入框里移动光标。输入停顿后，已加载的 zsh-autosuggestions 按它自己的策略算出后缀，用浅色显示在输入框光标后。右方向键或行尾键接受整段，Option+右方向键接受下一个词。Tab 调用当前 keymap 里 Tab 实际绑定的补全 widget，因此 zsh-completions 仍在补全链里；候选项列表不画进格子。Ctrl+R 用当前文本作为查询，把匹配的历史命令放回输入框；再按一次找更早的一条。Esc 退出这次搜索并恢复搜索前的草稿。输入框、选区和撤销管理器属于这个会话。跨窗口搬运时不重建它们。格子里的选区仍可用输入框的拷贝命令复制。
 
 bash、远程 shell、REPL、密码提示，以及交互程序自己的输入框，仍走普通终端。下面几种情况也走普通终端：zsh 握手还没建立、shell integration 关闭、keymap 不受支持，以及 exec 之后失去集成。
 

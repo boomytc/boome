@@ -440,6 +440,14 @@ final class GhosttyHost: NSObject {
         }
     }
 
+    /// Unscaled top of the active prompt. Nil when that prompt is not in the viewport.
+    func promptTop(for surface: Surface) -> CGFloat? {
+        guard surfaces[ObjectIdentifier(surface.view)] === surface else { return nil }
+        let y = ghostty_surface_prompt_top(surface.raw)
+        guard y >= 0, y.isFinite else { return nil }
+        return CGFloat(y)
+    }
+
     func imeRect(for surface: Surface) -> (x: Double, y: Double, width: Double, height: Double) {
         var x: Double = 0
         var y: Double = 0

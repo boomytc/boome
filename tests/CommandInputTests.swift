@@ -32,7 +32,10 @@ enum CommandInputTests {
         }
         let ready = frame(text: unicode, cursor: unicode.unicodeScalars.count)
         let snapshot = P.Snapshot(data: ready, token: bridge.token)!
-        check("ready snapshot accepts scalar cursor", snapshot.isReady && snapshot.text == unicode)
+        check("ready snapshot accepts scalar cursor", snapshot.isReady && snapshot.text == unicode && snapshot.suggestion.isEmpty)
+        let suggested = P.encode(["BOOME1", bridge.token, "123", "generation", "1", "1",
+                                  "ready", "echo", "4", "main", "start", "", "", "-from-plugin"])!
+        check("plugin suggestion is a separate suffix", P.Snapshot(data: suggested, token: bridge.token)?.suggestion == "-from-plugin")
         check("snapshot rejects wrong session token", P.Snapshot(data: ready, token: "wrong") == nil)
         check("snapshot rejects out of bounds cursor", P.Snapshot(data: frame(text: "x", cursor: 2), token: bridge.token) == nil)
         check("busy snapshot is not editable", P.Snapshot(data: frame(state: "busy"), token: bridge.token)?.isReady == false)
@@ -114,6 +117,19 @@ enum CommandInputTests {
             check("snapshot race preserves both native draft and shell text",
                   raceInput.textView.string == "native draft" && raceBridge.snapshot?.text == "shell changed")
         } else { check("snapshot race mailbox created", false) }
+        publish(frame(epoch: 5, revision: 8))
+        check("editor owns command input again", nextInput.ownsCommand)
+        check("prompt cover starts at the prompt top", CommandPromptCover.height(top: 20, terminalHeight: 100) == 80)
+        check("running command keeps the editor inset", CommandGridInset.height(editor: 0, reserved: 94, hold: true, limit: 400) == 94)
+        check("a finished prompt uses the live editor height", CommandGridInset.height(editor: 94, reserved: 94, hold: false, limit: 400) == 94)
+        check("an ordinary terminal releases the editor inset", CommandGridInset.height(editor: 0, reserved: 94, hold: false, limit: 400) == 0)
+        check("prompt cover is absent without a prompt", CommandPromptCover.height(top: nil, terminalHeight: 100) == 0)
+        check("prompt cover ignores a top outside the view", CommandPromptCover.height(top: 100, terminalHeight: 100) == 0)
+        check("completion request stays with the editor", bridge.send(.complete, text: "ls", cursor: 2))
+        let completion = bridge.pending!
+        publish(frame(state: "armed", text: "ls", cursor: 2, epoch: 5, revision: 9, acknowledgement: completion.id, result: "armed"))
+        publish(frame(text: "ls", cursor: 2, epoch: 5, revision: 10, acknowledgement: completion.id, result: "accepted"))
+        check("completion does not hand editing back to the terminal", nextInput.expanded && nextInput.ownsCommand && nextInput.textView.string == "ls")
         bridge.close()
         check("closing a surface removes private mailbox", !FileManager.default.fileExists(atPath: bridge.directory.path))
     }

@@ -700,7 +700,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         explorerSeparator.layer?.backgroundColor = BoomeChrome.hairline(on: background).cgColor
         editorSeparator.layer?.backgroundColor = BoomeChrome.hairline(on: background).cgColor
         fileEditor.use(background: background)
-        for tab in tabs { tab.content.input?.use(background: background) }
+        for tab in tabs { tab.content.use(background: background) }
         sidebar.use(background: background)
         projectExplorer.use(background: background)
         sidebarToggle.use(background: background)
@@ -730,7 +730,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     private func install(_ tab: TerminalTab) {
         let view = tab.content
-        view.input?.use(background: host.terminalBackground())
+        view.use(background: host.terminalBackground())
         view.translatesAutoresizingMaskIntoConstraints = false
         terminalHost.addSubview(view)
         NSLayoutConstraint.activate([

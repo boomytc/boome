@@ -61,7 +61,7 @@ func check(_ name: String, _ condition: @autoclosure () -> Bool) throws {
             return
         }
         let info = ghostty_info()
-        try check("runtime loads the owned terminal core", String(decoding: UnsafeRawBufferPointer(start: info.version, count: Int(info.version_len)), as: UTF8.self) == "1.3.1-boome.2")
+        try check("runtime loads the owned terminal core", String(decoding: UnsafeRawBufferPointer(start: info.version, count: Int(info.version_len)), as: UTF8.self) == "1.3.1-boome.3")
         try check("runtime core is compiled in ReleaseFast", info.build_mode == GHOSTTY_BUILD_MODE_RELEASE_FAST)
         let aFile = root.appendingPathComponent("A.txt")
         let bFile = root.appendingPathComponent("B.txt")

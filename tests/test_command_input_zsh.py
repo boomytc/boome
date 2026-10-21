@@ -75,7 +75,7 @@ class Shell:
     def state(self):
         try:
             fields = (self.root / "state").read_bytes().split(b"\0")
-            return [v.decode() for v in fields[:-1]] if len(fields) == 14 else None
+            return [v.decode() for v in fields[:-1]] if len(fields) == 15 else None
         except (FileNotFoundError, UnicodeError):
             return None
 
@@ -212,33 +212,85 @@ class ZLETests(unittest.TestCase):
         state = self.shell.wait(lambda s: s and s[11] == identity)
         self.assertEqual(state[7], "echo alpha")
 
+    def test_suggest_uses_the_plugin_fetcher_without_executing(self):
+        probe = self.shell.root / "suggest-ran"
+        self.shell.send(
+            "_zsh_autosuggest_fetch_suggestion() { typeset -g suggestion=\"$1-from-plugin\"; }\n"
+        )
+        self.shell.wait(lambda s: s and s[6] == "ready" and s[7] == "")
+        identity = self.shell.request("suggest", "echo")
+        state = self.shell.wait(lambda s: s and s[11] == identity and s[6] == "ready")
+        self.assertEqual(state[12], "accepted")
+        self.assertEqual(state[7], "echo")
+        self.assertEqual(state[13], "-from-plugin")
+        self.assertFalse(probe.exists())
+
+    def test_submit_after_suggest_is_not_a_false_shell_edit(self):
+        self.shell.send(
+            "_zsh_autosuggest_fetch_suggestion() { typeset -g suggestion=\"$1-from-plugin\"; }\n"
+        )
+        self.shell.wait(lambda s: s and s[6] == "ready" and s[7] == "")
+        identity = self.shell.request("suggest", "echo")
+        suggested = self.shell.wait(lambda s: s and s[11] == identity and s[12] == "accepted")
+        path = self.shell.root / "sent"
+        command = "printf SENT > " + shlex.quote(str(path))
+        identity = self.shell.request("submit", command, snapshot=suggested)
+        state = self.shell.wait(lambda s: s and s[11] == identity and path.exists())
+        self.assertEqual(state[12], "accepted")
+        self.assertEqual(path.read_text(), "SENT")
+
+    def test_real_shell_edit_after_suggest_stays_stale(self):
+        identity = self.shell.request("suggest", "echo")
+        suggested = self.shell.wait(lambda s: s and s[11] == identity and s[12] == "accepted")
+        self.shell.send("from-pty")
+        self.shell.wait(lambda s: s and s[7] == "from-pty")
+        identity = self.shell.request("submit", "touch NEVER", snapshot=suggested)
+        state = self.shell.wait(lambda s: s and s[11] == identity)
+        self.assertEqual(state[12], "rejected")
+        self.assertEqual(state[7], "from-pty")
+        self.assertFalse((self.shell.root / "NEVER").exists())
+
     def test_shell_completion_keeps_the_original_shell_completer(self):
         (self.shell.root / "alpha_file").write_text("")
         identity = self.shell.request("complete", "cat alph")
         state = self.shell.wait(lambda s: s and s[11] == identity and s[7].startswith("cat alpha_file"))
         self.assertEqual(state[12], "accepted")
 
-    def test_search_handoff_suspends_native_editor_until_exit(self):
+    def test_search_returns_history_into_the_editor_buffer(self):
         old = self.shell.state()
         identity = self.shell.request("submit", "echo searchable")
         self.shell.wait(lambda s: s and s[11] == identity and s[6] == "ready" and s[4] != old[4])
-        identity = self.shell.request("search")
-        self.shell.wait(lambda s: s and s[11] == identity and s[6] == "unsupported")
-        self.shell.send("\x07")
-        self.shell.wait(lambda s: s and s[6] == "ready")
+        identity = self.shell.request("submit", "echo searchable-later")
+        self.shell.wait(lambda s: s and s[11] == identity and s[6] == "ready")
+        identity = self.shell.request("search", "searchable")
+        state = self.shell.wait(lambda s: s and s[11] == identity and s[6] == "ready")
+        self.assertEqual(state[12], "accepted")
+        self.assertEqual(state[7], "echo searchable-later")
+        identity = self.shell.request("search", "searchable", snapshot=state)
+        older = self.shell.wait(lambda s: s and s[11] == identity and s[6] == "ready")
+        self.assertEqual(older[7], "echo searchable")
 
-    def test_search_enter_executes_without_an_extra_keypress(self):
+    def test_search_then_submit_executes_the_match(self):
         output = self.shell.root / "search-result"
         command = "printf BOOME_SEARCH > " + shlex.quote(str(output))
         old = self.shell.state()
         identity = self.shell.request("submit", command)
         self.shell.wait(lambda s: s and s[11] == identity and s[6] == "ready" and s[4] != old[4])
         output.unlink()
-        identity = self.shell.request("search")
-        self.shell.wait(lambda s: s and s[11] == identity and s[6] == "unsupported")
-        self.shell.send("BOOME_SEARCH\r")
+        identity = self.shell.request("search", "BOOME_SEARCH")
+        state = self.shell.wait(lambda s: s and s[11] == identity and s[6] == "ready" and s[12] == "accepted")
+        self.assertIn("printf BOOME_SEARCH", state[7])
+        identity = self.shell.request("submit", state[7], snapshot=state)
         self.shell.wait(lambda s: output.exists())
         self.assertEqual(output.read_text(), "BOOME_SEARCH")
+
+    def test_search_matches_a_literal_glob(self):
+        old = self.shell.state()
+        identity = self.shell.request("submit", "echo star*")
+        self.shell.wait(lambda s: s and s[11] == identity and s[6] == "ready" and s[4] != old[4])
+        identity = self.shell.request("search", "star*")
+        state = self.shell.wait(lambda s: s and s[11] == identity and s[6] == "ready")
+        self.assertEqual(state[7], "echo star*")
 
     def test_terminal_initiated_search_is_not_a_native_editable_prompt(self):
         self.shell.send("\x12")

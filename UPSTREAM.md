@@ -7,7 +7,7 @@ Boome 的终端核心源自 [Ghostty](https://github.com/ghostty-org/ghostty)。
 ## 当前基线
 
 - 源码来自 Ghostty `v1.3.1`，提交 `332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28`。
-- 核心在 `core/` 里维护。版本是 `1.3.1-boome.2`。Zig 是 `0.15.2`。
+- 核心在 `core/` 里维护。版本是 `1.3.1-boome.3`。Zig 是 `0.15.2`。
 - 上游已处理到 `a2e440396403385680008e456a741a7776091412`。此前按适用性核对了 21 个领先提交。已处理不表示 Boome 等于该上游版本。
 - 本机 `/Users/boom/workspace/ghostty` 只用来对照源码。构建不读它。换一台机器、没有这个目录，或目录里没有 Git 元数据，都不影响从本仓库构建。
 - 源码第一次收进本仓库时，没有另行升到上游 main。本机后加的行为写在下面的刻意差异里。那些行为不扩大要同步的上游范围。
@@ -37,8 +37,8 @@ Boome 的终端核心源自 [Ghostty](https://github.com/ghostty-org/ghostty)。
 - 嵌入库的 C ABI、GhosttyKit 模块名、配置契约和 shell integration 契约都保留。精简目录时，必要的共享辅助代码和原有测试夹具仍保留。
 - 核心版本来自它自己的 manifest。Boome 的 Git tag 不拿来推测 Ghostty 版本。
 - 静态归档使用当前构建图列出的对象文件。构建不使用 xcframework，不调用 Xcode libtool，也不靠扫描缓存再打包。
-- 本地命令输入由 AppKit `NSTextView` 和 zsh ZLE 一起完成。交互参照 Warp，不迁入 Warp 的 Rust 编辑器或 UI 框架。命令文本经每个 surface 的私有目录和 FIFO 传递。提交时校验会话、提示符代次、缓冲版本和期限。ZLE 先为该请求安装确认键，应用再发送确认。等待确认时，普通按键和粘贴暂停转发。命令文本不模拟送进正在运行的程序。
-- shell integration 增加本地模块 `zsh/boome-input`。集成关闭、程序正在运行、上下文未知，或不支持的 shell，都回到原来的终端链路。不根据屏幕上的提示符猜测可编辑缓冲。不用 eval 解码编辑请求。运行时资源固定取应用自己的 bundle，不继承父终端的 Ghostty 路径。加载本地模块前先检查资源在不在。邮箱安装失败时，不把私有目录路径留给子进程。
+- 本地命令输入由 AppKit `NSTextView` 和 zsh ZLE 一起完成。交互参照 Warp，不迁入 Warp 的 Rust 编辑器或 UI 框架。zsh 处于可编辑提示符时，只从底部文本框输入。已加载的 zsh-autosuggestions 按它的策略给出浅色后缀。Tab 调用当前绑定的补全 widget，zsh-completions 仍在补全链里。补全和历史搜索经 ZLE 计算后回到文本框。格子用语义提示符的位置盖住当前提示符，上方呈现已经执行的命令和输出。命令文本经每个 surface 的私有目录和 FIFO 传递。提交时校验会话、提示符代次、缓冲版本和期限。ZLE 先为该请求安装确认键，应用再发送确认。等待确认时，普通按键和粘贴暂停转发。命令文本不模拟送进正在运行的程序。
+- shell integration 增加本地模块 `zsh/boome-input`。集成关闭、程序正在运行、备用屏幕、上下文未知，或不支持的 shell，都回到原来的终端链路。不根据屏幕上的提示符猜测可编辑缓冲。不用 eval 解码编辑请求。运行时资源固定取应用自己的 bundle，不继承父终端的 Ghostty 路径。加载本地模块前先检查资源在不在。邮箱安装失败时，不把私有目录路径留给子进程。`ghostty_surface_prompt_top` 只报告当前提示符在视口中的位置。
 - 原始版权、MIT 声明，以及各依赖、字体和素材自己的许可证都保留。上游源码不是同一份许可证下的独立原创代码。
 
 ## 跟进下一段提交

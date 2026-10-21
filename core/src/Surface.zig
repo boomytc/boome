@@ -2137,6 +2137,20 @@ pub fn imePoint(self: *const Surface) apprt.IMEPos {
     };
 }
 
+/// Unscaled top of the active prompt in the surface, using the same point
+/// space as `imePoint`. Nil when that prompt is not in the viewport.
+pub fn promptTop(self: *Surface) ?f64 {
+    self.renderer_state.mutex.lock();
+    const row = self.renderer_state.terminal.promptViewportRow();
+    self.renderer_state.mutex.unlock();
+    const y = row orelse return null;
+    const content_scale = self.rt_surface.getContentScale() catch .{ .x = 1, .y = 1 };
+    const pixels: u32 = y * self.size.cell.height + self.size.padding.top;
+    var top: f64 = @floatFromInt(pixels);
+    top /= content_scale.y;
+    return top;
+}
+
 fn clipboardWrite(self: *const Surface, data: []const u8, loc: apprt.Clipboard) !void {
     if (self.config.clipboard_write == .deny) {
         log.info("application attempted to write clipboard, but 'clipboard-write' is set to deny", .{});

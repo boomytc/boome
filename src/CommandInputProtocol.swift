@@ -34,13 +34,15 @@ enum CommandInputProtocol {
         let context: String
         let acknowledgement: String
         let result: String
+        let suggestion: String
         var isReady: Bool {
             state == "ready" && ["main", "emacs", "viins"].contains(keymap)
                 && ["start", "cont"].contains(context)
         }
 
         init?(data: Data, token: String) {
-            guard let f = CommandInputProtocol.decode(data, count: 13),
+            let decoded = CommandInputProtocol.decode(data, count: 14) ?? CommandInputProtocol.decode(data, count: 13)
+            guard let f = decoded,
                   f[0] == "BOOME1", f[1] == token, let pid = Int32(f[2]), pid > 0,
                   !f[3].isEmpty, let epoch = Int(f[4]), epoch > 0,
                   let revision = Int(f[5]), revision > 0,
@@ -50,11 +52,12 @@ enum CommandInputProtocol {
             identity = Identity(generation: f[3], epoch: epoch, revision: revision)
             self.pid = pid; state = f[6]; text = f[7]; self.cursor = cursor
             keymap = f[9]; context = f[10]; acknowledgement = f[11]; result = f[12]
+            suggestion = f.count == 14 ? f[13] : ""
         }
     }
 
     enum Action: String {
-        case submit, terminal, complete, search, previous, next, cancel
+        case submit, terminal, complete, search, previous, next, cancel, suggest
         var requiresCommit: Bool { self == .submit || self == .complete || self == .search }
     }
 

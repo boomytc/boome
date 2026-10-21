@@ -1,7 +1,7 @@
 import AppKit
 
-/// One live terminal grid. Input goes to libghostty. The view does not
-/// call `ghostty_*`; `GhosttyHost` does.
+/// One live terminal grid. Command editing at a zsh prompt belongs to the
+/// bottom editor. This view does not call `ghostty_*`; `GhosttyHost` does.
 final class TerminalSurfaceView: NSView, NSTextInputClient {
     private(set) var surface: GhosttyHost.Surface!
     private let host = GhosttyHost.shared
@@ -10,6 +10,10 @@ final class TerminalSurfaceView: NSView, NSTextInputClient {
     private var collected: [String] = []
     private var cursorStyle: GhosttyHost.CursorStyle = .text
     private var tracking: NSTrackingArea?
+    var commandKeysBelongToEditor: (() -> Bool)?
+    var onEditorFocus: (() -> Void)?
+    var onReturnCommandKey: ((NSEvent) -> Void)?
+    var onViewportChange: (() -> Void)?
     private var screenObserver: NSObjectProtocol?
 
     override init(frame frameRect: NSRect) {
@@ -145,7 +149,7 @@ final class TerminalSurfaceView: NSView, NSTextInputClient {
 
     override func mouseDown(with event: NSEvent) {
         guard surface?.commandInput?.pending == nil else { return }
-        window?.makeFirstResponder(self)
+        if commandKeysBelongToEditor?() != true { window?.makeFirstResponder(self) }
         sendPosition(event)
         _ = host.sendMouseButton(surface, pressed: true, button: 0, modifiers: event.modifierFlags)
     }
@@ -153,6 +157,7 @@ final class TerminalSurfaceView: NSView, NSTextInputClient {
     override func mouseUp(with event: NSEvent) {
         sendPosition(event)
         _ = host.sendMouseButton(surface, pressed: false, button: 0, modifiers: event.modifierFlags)
+        if commandKeysBelongToEditor?() == true { onEditorFocus?() }
     }
 
     override func rightMouseDown(with event: NSEvent) {
@@ -224,10 +229,15 @@ final class TerminalSurfaceView: NSView, NSTextInputClient {
         }
         mods |= momentum << 1
         host.sendScroll(surface, x: Double(x), y: Double(y), mods: mods)
+        onViewportChange?()
     }
 
     override func keyDown(with event: NSEvent) {
         guard surface?.commandInput?.pending == nil else { return }
+        if commandKeysBelongToEditor?() == true {
+            onReturnCommandKey?(event)
+            return
+        }
         let translated = host.translatedModifiers(for: surface, flags: event.modifierFlags)
         let source = eventByApplying(translated, to: event)
         collecting = true
@@ -270,6 +280,10 @@ final class TerminalSurfaceView: NSView, NSTextInputClient {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard event.type == .keyDown, window?.firstResponder === self else { return false }
         if surface?.commandInput?.pending != nil { return true }
+        if commandKeysBelongToEditor?() == true {
+            onReturnCommandKey?(event)
+            return true
+        }
         if Self.isAppShortcut(event) { return false }
         let action: GhosttyHost.KeyAction = event.isARepeat ? .repeat : .press
         let translated = host.translatedModifiers(for: surface, flags: event.modifierFlags)
@@ -285,6 +299,10 @@ final class TerminalSurfaceView: NSView, NSTextInputClient {
 
     @objc func paste(_ sender: Any?) {
         guard surface?.commandInput?.pending == nil else { return }
+        if commandKeysBelongToEditor?() == true {
+            onEditorFocus?()
+            return
+        }
         _ = host.performBinding(surface, "paste_from_clipboard")
     }
 

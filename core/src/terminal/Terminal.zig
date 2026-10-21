@@ -1341,6 +1341,21 @@ pub fn cursorIsAtPrompt(self: *Terminal) bool {
     };
 }
 
+/// Viewport row where the current prompt starts, measured from the top of the
+/// visible screen. Nil when the cursor is not at a prompt, the alternate
+/// screen is active, or the prompt is outside the viewport.
+pub fn promptViewportRow(self: *Terminal) ?u32 {
+    if (self.screens.active_key == .alternate) return null;
+    if (!self.cursorIsAtPrompt()) return null;
+    const screen = self.screens.active;
+    var iterator = screen.cursor.page_pin.promptIterator(.left_up, null);
+    const prompt = iterator.next() orelse return null;
+    const located = screen.pages.pointFromPin(.viewport, prompt) orelse return null;
+    const y = located.coord().y;
+    if (y >= @as(u32, self.rows)) return null;
+    return y;
+}
+
 /// Horizontal tab moves the cursor to the next tabstop, clearing
 /// the screen to the left the tabstop.
 pub fn horizontalTab(self: *Terminal) void {
@@ -12387,6 +12402,28 @@ test "Terminal: cursorIsAtPrompt" {
     try t.linefeed();
     try t.semanticPrompt(.init(.prompt_start));
     try testing.expect(t.cursorIsAtPrompt());
+}
+
+test "Terminal: prompt viewport row follows the active prompt" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .cols = 10, .rows = 6 });
+    defer t.deinit(alloc);
+
+    try testing.expect(t.promptViewportRow() == null);
+    try t.semanticPrompt(.init(.prompt_start));
+    for ("$ ") |c| try t.print(c);
+    try t.semanticPrompt(.init(.end_prompt_start_input));
+    try testing.expectEqual(@as(u32, 0), t.promptViewportRow().?);
+
+    try t.linefeed();
+    for ("out") |c| try t.print(c);
+    try t.semanticPrompt(.init(.end_input_start_output));
+    try t.linefeed();
+    try testing.expect(t.promptViewportRow() == null);
+    try t.semanticPrompt(.init(.prompt_start));
+    const row = t.promptViewportRow().?;
+    try testing.expect(row > 0);
+    try testing.expect(row < t.rows);
 }
 
 test "Terminal: cursorIsAtPrompt alternate screen" {

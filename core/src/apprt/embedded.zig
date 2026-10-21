@@ -1900,6 +1900,13 @@ pub const CAPI = struct {
         height.* = pos.height;
     }
 
+    /// Top of the active prompt in unscaled surface points, or -1 when the
+    /// prompt is not in the viewport. The app covers that region while the
+    /// bottom editor owns the command.
+    export fn ghostty_surface_prompt_top(surface: *Surface) f64 {
+        return surface.core_surface.promptTop() orelse -1;
+    }
+
     /// Request that the surface become closed. This will go through the
     /// normal trigger process that a close surface input binding would.
     export fn ghostty_surface_request_close(ptr: *Surface) void {
