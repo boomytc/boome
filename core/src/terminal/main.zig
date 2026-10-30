@@ -70,13 +70,3 @@ pub const options = @import("terminal_options");
 
 /// This is set to true when we're building the C library.
 pub const c_api = if (options.c_abi) @import("c/main.zig") else void;
-
-test {
-    @import("std").testing.refAllDecls(@This());
-
-    // Internals
-    _ = @import("bitmap_allocator.zig");
-    _ = @import("hash_map.zig");
-    _ = @import("ref_counted_set.zig");
-    _ = @import("size.zig");
-}

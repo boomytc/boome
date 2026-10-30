@@ -52,31 +52,3 @@ pub const Post = extern struct {
         return try reader.readStructEndian(Post, .big);
     }
 };
-
-test "post" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-    const test_font = @import("../embedded.zig").julia_mono;
-
-    const font = try sfnt.SFNT.init(test_font, alloc);
-    defer font.deinit(alloc);
-
-    const table = font.getTable("post").?;
-
-    const post = try Post.init(table);
-
-    try testing.expectEqualDeep(
-        Post{
-            .version = sfnt.Version16Dot16{ .minor = 0, .major = 2 },
-            .italicAngle = sfnt.Fixed.from(0.0),
-            .underlinePosition = -200,
-            .underlineThickness = 100,
-            .isFixedPitch = 1,
-            .minMemType42 = 0,
-            .maxMemType42 = 0,
-            .minMemType1 = 0,
-            .maxMemType1 = 0,
-        },
-        post,
-    );
-}

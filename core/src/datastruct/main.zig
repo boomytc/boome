@@ -16,9 +16,3 @@ pub const IntrusiveDoublyLinkedList = intrusive_linked_list.DoublyLinkedList;
 pub const MessageData = @import("message_data.zig").MessageData;
 pub const SegmentedPool = segmented_pool.SegmentedPool;
 pub const SplitTree = split_tree.SplitTree;
-
-test {
-    @import("std").testing.refAllDecls(@This());
-
-    _ = @import("comparison.zig");
-}

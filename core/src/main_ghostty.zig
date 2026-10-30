@@ -177,37 +177,3 @@ pub const std_options: std.Options = .{
 
     .logFn = logFn,
 };
-
-test {
-    _ = @import("pty.zig");
-    _ = @import("Command.zig");
-    _ = @import("font/main.zig");
-    _ = @import("apprt.zig");
-    _ = @import("renderer.zig");
-    _ = @import("termio.zig");
-    _ = @import("input.zig");
-    _ = @import("cli.zig");
-    _ = @import("surface_mouse.zig");
-
-    // Libraries
-    _ = @import("tripwire.zig");
-    _ = @import("benchmark/main.zig");
-    _ = @import("crash/main.zig");
-    _ = @import("datastruct/main.zig");
-    _ = @import("inspector/main.zig");
-    _ = @import("lib/main.zig");
-    _ = @import("terminal/main.zig");
-    _ = @import("terminfo/main.zig");
-    _ = @import("simd/main.zig");
-    _ = @import("synthetic/main.zig");
-    _ = @import("unicode/main.zig");
-    _ = @import("unicode/props_uucode.zig");
-    _ = @import("unicode/symbols_uucode.zig");
-
-    // Extra
-    _ = @import("extra/bash.zig");
-    _ = @import("extra/fish.zig");
-    _ = @import("extra/sublime.zig");
-    _ = @import("extra/vim.zig");
-    _ = @import("extra/zsh.zig");
-}

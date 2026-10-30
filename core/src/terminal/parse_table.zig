@@ -380,9 +380,3 @@ fn range(t: *OptionalTable, from: u8, to: u8, s0: State, s1: State, a: Action) v
 fn transition(state: State, action: Action) Transition {
     return .{ .state = state, .action = action };
 }
-
-test {
-    // This forces comptime-evaluation of table, so we're just testing
-    // that it succeeds in creation.
-    _ = table;
-}

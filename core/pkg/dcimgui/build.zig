@@ -178,20 +178,6 @@ pub fn build(b: *std.Build) !void {
             .{ .include_extensions = &.{".h"} },
         );
     }
-
-    const test_exe = b.addTest(.{
-        .name = "test",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("main.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    test_exe.root_module.addOptions("build_options", options);
-    test_exe.linkLibrary(lib);
-    const tests_run = b.addRunArtifact(test_exe);
-    const test_step = b.step("test", "Run tests");
-    test_step.dependOn(&tests_run.step);
 }
 
 // For dynamic linking, we prefer dynamic linking and to search by

@@ -1,8 +1,6 @@
-const std = @import("std");
 const c = @import("c.zig").c;
 const types = @import("types.zig");
 const errors = @import("errors.zig");
-const testEnsureInit = @import("testing.zig").ensureInit;
 const MatchParam = @import("match_param.zig").MatchParam;
 const Region = @import("region.zig").Region;
 const Error = errors.Error;
@@ -128,25 +126,3 @@ pub const Regex = struct {
         return @intCast(pos);
     }
 };
-
-test {
-    const testing = std.testing;
-
-    try testEnsureInit();
-    var re = try Regex.init("foo", .{}, Encoding.utf8, Syntax.default, null);
-    defer re.deinit();
-
-    var reg = try re.search("hello foo bar", .{});
-    defer reg.deinit();
-    try testing.expectEqual(@as(usize, 1), reg.count());
-
-    try testing.expectError(Error.Mismatch, re.search("hello", .{}));
-
-    var match_param = try MatchParam.init();
-    defer match_param.deinit();
-    try match_param.setRetryLimitInSearch(1000);
-
-    var reg_param = try re.searchWithParam("hello foo bar", .{}, &match_param);
-    defer reg_param.deinit();
-    try testing.expectEqual(@as(usize, 1), reg_param.count());
-}

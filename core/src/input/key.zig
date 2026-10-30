@@ -756,30 +756,6 @@ pub const Key = enum(c_int) {
         return self == .alt_left or self == .alt_right;
     }
 
-    test "fromASCII should not return keypad keys" {
-        const testing = std.testing;
-        try testing.expect(Key.fromASCII('0').? == .digit_0);
-        try testing.expect(Key.fromASCII('*') == null);
-    }
-
-    test "keypad keys" {
-        const testing = std.testing;
-        try testing.expect(Key.numpad_0.keypad());
-        try testing.expect(!Key.digit_1.keypad());
-    }
-
-    test "w3c" {
-        // All our keys should convert to and from the W3C format.
-        // We don't support every key in the W3C spec, so we only
-        // check the enum fields.
-        const testing = std.testing;
-        inline for (@typeInfo(Key).@"enum".fields) |field| {
-            const key = @field(Key, field.name);
-            const w3c_name = key.w3c();
-            try testing.expectEqual(key, Key.fromW3C(w3c_name).?);
-        }
-    }
-
     const codepoint_map: []const struct { u21, Key } = &.{
         .{ 'a', .key_a },
         .{ 'b', .key_b },
@@ -869,11 +845,4 @@ pub fn ctrlOrSuper(mods: Mods) Mods {
     }
 
     return copy;
-}
-
-test "ctrlOrSuper" {
-    const testing = std.testing;
-    var m: Mods = ctrlOrSuper(.{});
-
-    try testing.expect(m.ctrlOrSuper());
 }

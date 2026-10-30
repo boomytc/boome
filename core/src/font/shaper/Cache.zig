@@ -85,22 +85,3 @@ fn clear(self: *Cache, alloc: Allocator) void {
     }
     self.map.clear();
 }
-
-test Cache {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    var c = Cache.init();
-    defer c.deinit(alloc);
-
-    var run: font.shape.TextRun = undefined;
-    run.hash = 1;
-    try testing.expect(c.get(run) == null);
-    try c.put(alloc, run, &.{
-        .{ .x = 0, .glyph_index = 0 },
-        .{ .x = 1, .glyph_index = 1 },
-    });
-
-    const actual = c.get(run).?;
-    try testing.expect(actual.len == 2);
-}

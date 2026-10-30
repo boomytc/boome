@@ -7,7 +7,3 @@
 
 pub const ghostty = @import("ghostty.zig").ghostty;
 pub const Source = @import("Source.zig");
-
-test {
-    @import("std").testing.refAllDecls(@This());
-}

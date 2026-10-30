@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const build_config = @import("../build_config.zig");
@@ -102,9 +101,7 @@ pub const DiagnosticList = struct {
     precompute: Precompute = precompute_init,
 
     const precompute_enabled = switch (build_config.artifact) {
-        // We enable precompute for tests so that the logic is
-        // semantically analyzed and run.
-        .exe, .wasm_module => builtin.is_test,
+        .exe, .wasm_module => false,
 
         // We specifically want precompute for libghostty.
         .lib => true,

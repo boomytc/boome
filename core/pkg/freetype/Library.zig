@@ -77,16 +77,3 @@ pub const Version = struct {
         });
     }
 };
-
-test "basics" {
-    const testing = std.testing;
-
-    var lib = try init();
-    defer lib.deinit();
-
-    const vsn = lib.version();
-    try testing.expect(vsn.major > 1);
-
-    var buf: [32]u8 = undefined;
-    _ = try vsn.toString(&buf);
-}

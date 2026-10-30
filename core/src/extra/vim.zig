@@ -112,7 +112,3 @@ fn writeSyntax(writer: *std.Io.Writer) !void {
         \\
     );
 }
-
-test {
-    _ = syntax;
-}

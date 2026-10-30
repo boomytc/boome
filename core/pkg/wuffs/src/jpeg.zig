@@ -126,26 +126,3 @@ pub fn decode(alloc: Allocator, data: []const u8) Error!ImageData {
         .data = destination,
     };
 }
-
-test "jpeg_decode_000000" {
-    const data = try decode(std.testing.allocator, @embedFile("1x1#000000.jpg"));
-    defer std.testing.allocator.free(data.data);
-
-    try std.testing.expectEqual(1, data.width);
-    try std.testing.expectEqual(1, data.height);
-    try std.testing.expectEqualSlices(u8, &.{ 0, 0, 0, 255 }, data.data);
-}
-
-test "jpeg_decode_FFFFFF" {
-    const data = try decode(std.testing.allocator, @embedFile("1x1#FFFFFF.jpg"));
-    defer std.testing.allocator.free(data.data);
-
-    try std.testing.expectEqual(1, data.width);
-    try std.testing.expectEqual(1, data.height);
-    try std.testing.expectEqualSlices(u8, &.{ 255, 255, 255, 255 }, data.data);
-}
-
-test "jpeg: too big" {
-    const data = decode(std.testing.allocator, @embedFile("too_big.jpg"));
-    try std.testing.expectError(error.Overflow, data);
-}

@@ -19,39 +19,13 @@ pub fn build(b: *std.Build) !void {
         .search_strategy = .mode_first,
     };
 
-    var test_exe: ?*std.Build.Step.Compile = null;
-    if (target.query.isNative()) {
-        test_exe = b.addTest(.{
-            .name = "test",
-            .root_module = b.createModule(.{
-                .root_source_file = b.path("main.zig"),
-                .target = target,
-                .optimize = optimize,
-            }),
-        });
-        const tests_run = b.addRunArtifact(test_exe.?);
-        const test_step = b.step("test", "Run tests");
-        test_step.dependOn(&tests_run.step);
-
-        // Uncomment this if we're debugging tests
-        b.installArtifact(test_exe.?);
-    }
-
     if (b.systemIntegrationOption("oniguruma", .{})) {
         module.linkSystemLibrary("oniguruma", dynamic_link_opts);
-
-        if (test_exe) |exe| {
-            exe.linkSystemLibrary2("oniguruma", dynamic_link_opts);
-        }
     } else {
-        const lib = try buildLib(b, module, .{
+        _ = try buildLib(b, module, .{
             .target = target,
             .optimize = optimize,
         });
-
-        if (test_exe) |exe| {
-            exe.linkLibrary(lib);
-        }
     }
 }
 

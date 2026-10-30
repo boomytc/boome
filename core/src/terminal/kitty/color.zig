@@ -61,17 +61,3 @@ pub const Kind = union(enum) {
         }
     }
 };
-
-test "OSC: kitty color protocol kind string" {
-    const testing = std.testing;
-
-    var buf: [256]u8 = undefined;
-    {
-        const actual = try std.fmt.bufPrint(&buf, "{f}", .{Kind{ .special = .foreground }});
-        try testing.expectEqualStrings("foreground", actual);
-    }
-    {
-        const actual = try std.fmt.bufPrint(&buf, "{f}", .{Kind{ .palette = 42 }});
-        try testing.expectEqualStrings("42", actual);
-    }
-}

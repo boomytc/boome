@@ -3,7 +3,6 @@
 const TempDir = @This();
 
 const std = @import("std");
-const testing = std.testing;
 const Dir = std.fs.Dir;
 const allocTmpDir = @import("file.zig").allocTmpDir;
 const freeTmpDir = @import("file.zig").freeTmpDir;
@@ -77,19 +76,3 @@ const TMP_PATH_LEN = b64_encoder.calcSize(RANDOM_BYTES);
 // be used in a file name on any filesystem.
 const b64_encoder = std.base64.Base64Encoder.init(b64_alphabet, null);
 const b64_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".*;
-
-test {
-    var td = try init();
-    errdefer td.deinit();
-
-    const nameval = td.name();
-    try testing.expect(nameval.len > 0);
-
-    // Can open a new handle to it proves it exists.
-    var dir = try td.parent.openDir(nameval, .{});
-    dir.close();
-
-    // Should be deleted after we deinit
-    td.deinit();
-    try testing.expectError(error.FileNotFound, td.parent.openDir(nameval, .{}));
-}

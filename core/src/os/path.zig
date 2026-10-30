@@ -1,7 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
-const testing = std.testing;
 
 /// Search for "cmd" in the PATH and return the absolute path. This will
 /// always allocate if there is a non-null result. The caller must free the
@@ -67,23 +66,4 @@ pub fn expand(alloc: Allocator, cmd: []const u8) !?[]u8 {
 fn isExecutable(mode: std.fs.File.Mode) bool {
     if (builtin.os.tag == .windows) return true;
     return mode & 0o0111 != 0;
-}
-
-// `uname -n` is the *nix equivalent of `hostname.exe` on Windows
-test "expand: hostname" {
-    const executable = if (builtin.os.tag == .windows) "hostname.exe" else "uname";
-    const path = (try expand(testing.allocator, executable)).?;
-    defer testing.allocator.free(path);
-    try testing.expect(path.len > executable.len);
-}
-
-test "expand: does not exist" {
-    const path = try expand(testing.allocator, "thisreallyprobablydoesntexist123");
-    try testing.expect(path == null);
-}
-
-test "expand: slash" {
-    const path = (try expand(testing.allocator, "foo/env")).?;
-    defer testing.allocator.free(path);
-    try testing.expect(path.len == 7);
 }

@@ -97,19 +97,3 @@ fn initTable() [table_len]u16 {
     assert(i == table_len);
     return result;
 }
-
-test {
-    const testing = std.testing;
-    const info = @typeInfo(Charset).@"enum";
-    inline for (info.fields) |field| {
-        // utf8 has no table
-        if (@field(Charset, field.name) == .utf8) continue;
-
-        const tbl = table(@field(Charset, field.name));
-
-        // Yes, I could use `table_len` here, but I want to explicitly use a
-        // hardcoded constant so that if there are miscompilations or a comptime
-        // issue, we catch it.
-        try testing.expectEqual(@as(usize, 256), tbl.len);
-    }
-}

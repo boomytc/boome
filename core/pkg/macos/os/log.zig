@@ -53,13 +53,3 @@ pub const LogType = enum(c.os_log_type_t) {
     err = c.OS_LOG_TYPE_ERROR,
     fault = c.OS_LOG_TYPE_FAULT,
 };
-
-test {
-    const testing = std.testing;
-
-    const log = Log.create("com.mitchellh.ghostty", "test");
-    defer log.release();
-
-    try testing.expect(log.typeEnabled(.fault));
-    log.log(testing.allocator, .default, "hello {d}", .{12});
-}

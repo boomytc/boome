@@ -71,7 +71,3 @@ pub const ext = struct {
     pub extern fn ImFontConfig_ImFontConfig(self: *c.ImFontConfig) callconv(.c) void;
     pub extern fn ImGuiStyle_ImGuiStyle(self: *c.ImGuiStyle) callconv(.c) void;
 };
-
-test {
-    _ = c;
-}

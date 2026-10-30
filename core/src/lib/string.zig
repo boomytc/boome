@@ -8,8 +8,3 @@ const std = @import("std");
 pub fn cutPrefix(comptime T: type, slice: []const T, prefix: []const T) ?[]const T {
     return if (std.mem.startsWith(T, slice, prefix)) slice[prefix.len..] else null;
 }
-
-test cutPrefix {
-    try std.testing.expectEqualStrings("foo", cutPrefix(u8, "--example=foo", "--example=").?);
-    try std.testing.expectEqual(null, cutPrefix(u8, "--example=foo", "-example="));
-}

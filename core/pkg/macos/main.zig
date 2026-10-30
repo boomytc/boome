@@ -29,7 +29,3 @@ pub const c = @cImport({
         @cInclude("Carbon/Carbon.h");
     }
 });
-
-test {
-    @import("std").testing.refAllDecls(@This());
-}

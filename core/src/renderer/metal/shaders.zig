@@ -279,12 +279,6 @@ pub const CellText = extern struct {
         grayscale = 0,
         color = 1,
     };
-
-    test {
-        // Minimizing the size of this struct is important,
-        // so we test it in order to be aware of any changes.
-        try std.testing.expectEqual(32, @sizeOf(CellText));
-    }
 };
 
 /// This is a single parameter for the cell bg shader.

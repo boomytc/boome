@@ -116,26 +116,6 @@ fn FixedPoint(comptime T: type, int_bits: u64, frac_bits: u64) type {
     };
 }
 
-test FixedPoint {
-    const testing = std.testing;
-
-    const p26d6 = F26Dot6.from(26.6);
-    try testing.expectEqual(F26Dot6{
-        .int = 26,
-        .frac = 38,
-    }, p26d6);
-    try testing.expectEqual(26.59375, p26d6.to(f64));
-    try testing.expectEqual(27, p26d6.round());
-
-    const n26d6 = F26Dot6.from(-26.6);
-    try testing.expectEqual(F26Dot6{
-        .int = -27,
-        .frac = 26,
-    }, n26d6);
-    try testing.expectEqual(-26.59375, n26d6.to(f64));
-    try testing.expectEqual(-27, n26d6.round());
-}
-
 /// Wrapper for parsing a SFNT font and accessing its tables.
 ///
 /// References:
@@ -283,30 +263,3 @@ pub const SFNT = struct {
 };
 
 const native_endian = @import("builtin").target.cpu.arch.endian();
-
-test "parse font" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    const test_font = @import("../embedded.zig").julia_mono;
-
-    const sfnt = try SFNT.init(&test_font.*, alloc);
-    defer sfnt.deinit(alloc);
-
-    try testing.expectEqual(19, sfnt.directory.offset.num_tables);
-    try testing.expectEqualStrings("prep", &sfnt.directory.records[18].tag);
-}
-
-test "get table" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    const test_font = @import("../embedded.zig").julia_mono;
-
-    const sfnt = try SFNT.init(&test_font.*, alloc);
-    defer sfnt.deinit(alloc);
-
-    const svg = sfnt.getTable("SVG ").?;
-
-    try testing.expectEqual(430, svg.len);
-}

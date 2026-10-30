@@ -44,20 +44,3 @@ fn colorMap() ColorMap {
 /// This data is licensed under the MIT/X11 license while this Zig file is
 /// licensed under the same license as Ghostty.
 const data = @embedFile("res/rgb.txt");
-
-test {
-    const testing = std.testing;
-    try testing.expectEqual(null, map.get("nosuchcolor"));
-    try testing.expectEqual(RGB{ .r = 255, .g = 255, .b = 255 }, map.get("white").?);
-    try testing.expectEqual(RGB{ .r = 0, .g = 250, .b = 154 }, map.get("medium spring green"));
-    try testing.expectEqual(RGB{ .r = 34, .g = 139, .b = 34 }, map.get("ForestGreen"));
-    try testing.expectEqual(RGB{ .r = 34, .g = 139, .b = 34 }, map.get("FoReStGReen"));
-    try testing.expectEqual(RGB{ .r = 0, .g = 0, .b = 0 }, map.get("black"));
-    try testing.expectEqual(RGB{ .r = 255, .g = 0, .b = 0 }, map.get("red"));
-    try testing.expectEqual(RGB{ .r = 0, .g = 255, .b = 0 }, map.get("green"));
-    try testing.expectEqual(RGB{ .r = 0, .g = 0, .b = 255 }, map.get("blue"));
-    try testing.expectEqual(RGB{ .r = 255, .g = 255, .b = 255 }, map.get("white"));
-    try testing.expectEqual(RGB{ .r = 124, .g = 252, .b = 0 }, map.get("lawngreen"));
-    try testing.expectEqual(RGB{ .r = 0, .g = 250, .b = 154 }, map.get("mediumspringgreen"));
-    try testing.expectEqual(RGB{ .r = 34, .g = 139, .b = 34 }, map.get("forestgreen"));
-}

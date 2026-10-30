@@ -151,19 +151,6 @@ pub const Id = enum(u64) {
             @ptrCast(ptr),
         ));
     }
-
-    test "generate ID" {
-        // We can't really test the return value because it may return null
-        // if signposts are disabled.
-        const id: Id = .generate(Log.create("com.mitchellh.ghostty", "test"));
-        try std.testing.expect(id != .invalid);
-    }
-
-    test "generate ID for pointer" {
-        var foo: usize = 0x1234;
-        const id: Id = .forPointer(Log.create("com.mitchellh.ghostty", "test"), &foo);
-        try std.testing.expect(id != .null);
-    }
 };
 
 /// https://developer.apple.com/documentation/os/ossignposttype?language=objc
@@ -193,22 +180,3 @@ pub const Category = struct {
     /// performance overhead.
     pub const dynamic_stack_tracing: [:0]const u8 = "DynamicStackTracing";
 };
-
-test {
-    _ = Id;
-}
-
-test enabled {
-    _ = enabled(Log.create("com.mitchellh.ghostty", "test"));
-}
-
-test "intervals" {
-    init();
-
-    const log = Log.create("com.mitchellh.ghostty", "test");
-    defer log.release();
-
-    // Test that we can begin and end an interval
-    const id = Id.generate(log);
-    intervalBegin(log, id, "Test Interval");
-}

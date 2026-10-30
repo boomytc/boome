@@ -688,8 +688,6 @@ pub fn RefCountedSet(
                     }
                 }
 
-                std.testing.expectEqualSlices(Id, &psl_stats, &self.psl_stats) catch assert(false);
-
                 assert(std.mem.eql(Id, &psl_stats, &self.psl_stats));
 
                 psl_stats = @splat(0);
@@ -707,7 +705,7 @@ pub fn RefCountedSet(
                     }
                 }
 
-                std.testing.expectEqualSlices(Id, &psl_stats, &self.psl_stats) catch assert(false);
+                assert(std.mem.eql(Id, &psl_stats, &self.psl_stats));
             }
         }
     };

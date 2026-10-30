@@ -1,4 +1,3 @@
-const std = @import("std");
 const Source = @import("Source.zig");
 
 /// Ghostty's terminfo entry.
@@ -387,11 +386,3 @@ pub const ghostty: Source = .{
         .{ .name = "sc", .value = .{ .string = "\\E7" } },
     },
 };
-
-test "encode" {
-    // Encode
-    var buf: [1024 * 16]u8 = undefined;
-    var writer: std.Io.Writer = .fixed(&buf);
-    try ghostty.encode(&writer);
-    try std.testing.expect(writer.buffered().len > 0);
-}

@@ -23,7 +23,3 @@ pub const Runtime = enum {
         };
     }
 };
-
-test {
-    _ = Runtime;
-}

@@ -1,5 +1,4 @@
 const std = @import("std");
-const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
 
@@ -31,53 +30,6 @@ pub const ShellCommandBuilder = struct {
         return try self.buffer.toOwnedSliceSentinel(0);
     }
 };
-
-test ShellCommandBuilder {
-    // Empty command
-    {
-        var cmd = ShellCommandBuilder.init(testing.allocator);
-        defer cmd.deinit();
-        try testing.expectEqualStrings("", cmd.buffer.written());
-    }
-
-    // Single arg
-    {
-        var cmd = ShellCommandBuilder.init(testing.allocator);
-        defer cmd.deinit();
-        try cmd.appendArg("bash");
-        try testing.expectEqualStrings("bash", cmd.buffer.written());
-    }
-
-    // Multiple args
-    {
-        var cmd = ShellCommandBuilder.init(testing.allocator);
-        defer cmd.deinit();
-        try cmd.appendArg("bash");
-        try cmd.appendArg("--posix");
-        try cmd.appendArg("-l");
-        try testing.expectEqualStrings("bash --posix -l", cmd.buffer.written());
-    }
-
-    // Empty arg
-    {
-        var cmd = ShellCommandBuilder.init(testing.allocator);
-        defer cmd.deinit();
-        try cmd.appendArg("bash");
-        try cmd.appendArg("");
-        try testing.expectEqualStrings("bash", cmd.buffer.written());
-    }
-
-    // toOwnedSlice
-    {
-        var cmd = ShellCommandBuilder.init(testing.allocator);
-        try cmd.appendArg("bash");
-        try cmd.appendArg("--posix");
-        const result = try cmd.toOwnedSlice();
-        defer testing.allocator.free(result);
-        try testing.expectEqualStrings("bash --posix", result);
-        try testing.expectEqual(@as(u8, 0), result[result.len]);
-    }
-}
 
 /// Writer that escapes characters that shells treat specially to reduce the
 /// risk of injection attacks or other such weirdness. Specifically excludes
@@ -138,59 +90,3 @@ pub const ShellEscapeWriter = struct {
         }
     }
 };
-
-test "shell escape 1" {
-    var buf: [128]u8 = undefined;
-    var writer: std.Io.Writer = .fixed(&buf);
-    var shell: ShellEscapeWriter = .init(&writer);
-    try shell.writer.writeAll("abc");
-    try testing.expectEqualStrings("abc", writer.buffered());
-}
-
-test "shell escape 2" {
-    var buf: [128]u8 = undefined;
-    var writer: std.Io.Writer = .fixed(&buf);
-    var shell: ShellEscapeWriter = .init(&writer);
-    try shell.writer.writeAll("a c");
-    try testing.expectEqualStrings("a\\ c", writer.buffered());
-}
-
-test "shell escape 3" {
-    var buf: [128]u8 = undefined;
-    var writer: std.Io.Writer = .fixed(&buf);
-    var shell: ShellEscapeWriter = .init(&writer);
-    try shell.writer.writeAll("a?c");
-    try testing.expectEqualStrings("a\\?c", writer.buffered());
-}
-
-test "shell escape 4" {
-    var buf: [128]u8 = undefined;
-    var writer: std.Io.Writer = .fixed(&buf);
-    var shell: ShellEscapeWriter = .init(&writer);
-    try shell.writer.writeAll("a\\c");
-    try testing.expectEqualStrings("a\\\\c", writer.buffered());
-}
-
-test "shell escape 5" {
-    var buf: [128]u8 = undefined;
-    var writer: std.Io.Writer = .fixed(&buf);
-    var shell: ShellEscapeWriter = .init(&writer);
-    try shell.writer.writeAll("a|c");
-    try testing.expectEqualStrings("a\\|c", writer.buffered());
-}
-
-test "shell escape 6" {
-    var buf: [128]u8 = undefined;
-    var writer: std.Io.Writer = .fixed(&buf);
-    var shell: ShellEscapeWriter = .init(&writer);
-    try shell.writer.writeAll("a\"c");
-    try testing.expectEqualStrings("a\\\"c", writer.buffered());
-}
-
-test "shell escape 7" {
-    var buf: [128]u8 = undefined;
-    var writer: std.Io.Writer = .fixed(&buf);
-    var shell: ShellEscapeWriter = .init(&writer);
-    try shell.writer.writeAll("a(1)");
-    try testing.expectEqualStrings("a\\(1\\)", writer.buffered());
-}

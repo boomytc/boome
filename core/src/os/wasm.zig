@@ -19,7 +19,4 @@ pub const shared_mem = options.wasm_shared;
 /// unless toHostOwned is called on them. In this case, the caller is expected
 /// to call free. If a pointer is NOT host-owned, then the wasm module is
 /// expected to call the normal alloc.free/destroy functions.
-pub const alloc = if (builtin.is_test)
-    std.testing.allocator
-else
-    std.heap.wasm_allocator;
+pub const alloc = std.heap.wasm_allocator;

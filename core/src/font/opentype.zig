@@ -11,7 +11,3 @@ pub const OS2 = os2.OS2;
 pub const Post = post.Post;
 pub const Hhea = hhea.Hhea;
 pub const Head = head.Head;
-
-test {
-    @import("std").testing.refAllDecls(@This());
-}

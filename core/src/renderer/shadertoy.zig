@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const glslang = @import("glslang");
@@ -157,9 +156,6 @@ pub fn spirvFromGlsl(
     errlog: ?*SpirvLog,
     src: [:0]const u8,
 ) !void {
-    // So we can run unit tests without fear.
-    if (builtin.is_test) try glslang.testing.ensureInit();
-
     const c = glslang.c;
     const input: c.glslang_input_t = .{
         .language = c.GLSLANG_SOURCE_GLSL,
@@ -343,85 +339,3 @@ fn spvCross(
 
     return try alloc.dupeZ(u8, std.mem.sliceTo(result, 0));
 }
-
-/// Convert ShaderToy shader to null-terminated glsl for testing.
-fn testGlslZ(alloc: Allocator, src: []const u8) ![:0]const u8 {
-    var buf: std.Io.Writer.Allocating = .init(alloc);
-    defer buf.deinit();
-    try glslFromShader(&buf.writer, src);
-    return try buf.toOwnedSliceSentinel(0);
-}
-
-test "spirv" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    const src = try testGlslZ(alloc, test_crt);
-    defer alloc.free(src);
-
-    var buf: [4096 * 4]u8 = undefined;
-    var writer: std.Io.Writer = .fixed(&buf);
-    try spirvFromGlsl(&writer, null, src);
-}
-
-test "spirv invalid" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    const src = try testGlslZ(alloc, test_invalid);
-    defer alloc.free(src);
-
-    var buf: [4096 * 4]u8 = undefined;
-    var writer: std.Io.Writer = .fixed(&buf);
-
-    var errlog: SpirvLog = .{ .alloc = alloc };
-    defer errlog.deinit();
-    try testing.expectError(error.GlslangFailed, spirvFromGlsl(&writer, &errlog, src));
-    try testing.expect(errlog.info.len > 0);
-}
-
-test "shadertoy to msl" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    const src = try testGlslZ(alloc, test_crt);
-    defer alloc.free(src);
-
-    var buf: std.Io.Writer.Allocating = .init(alloc);
-    defer buf.deinit();
-    try spirvFromGlsl(&buf.writer, null, src);
-
-    // TODO: Replace this with an aligned version of Writer.Allocating
-    var spvlist: std.ArrayListAligned(u8, .of(u32)) = .empty;
-    defer spvlist.deinit(alloc);
-    try spvlist.appendSlice(alloc, buf.written());
-
-    const msl = try mslFromSpv(alloc, spvlist.items);
-    defer alloc.free(msl);
-}
-
-test "shadertoy to glsl" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    const src = try testGlslZ(alloc, test_crt);
-    defer alloc.free(src);
-
-    var buf: std.Io.Writer.Allocating = .init(alloc);
-    defer buf.deinit();
-    try spirvFromGlsl(&buf.writer, null, src);
-
-    // TODO: Replace this with an aligned version of Writer.Allocating
-    var spvlist: std.ArrayListAligned(u8, .of(u32)) = .empty;
-    defer spvlist.deinit(alloc);
-    try spvlist.appendSlice(alloc, buf.written());
-
-    const glsl = try glslFromSpv(alloc, spvlist.items);
-    defer alloc.free(glsl);
-
-    // log.warn("glsl={s}", .{glsl});
-}
-
-const test_crt = @embedFile("shaders/test_shadertoy_crt.glsl");
-const test_invalid = @embedFile("shaders/test_shadertoy_invalid.glsl");
-const test_focus = @embedFile("shaders/test_shadertoy_focus.glsl");

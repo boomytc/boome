@@ -1,6 +1,5 @@
 const std = @import("std");
 const assert = @import("../../quirks.zig").inlineAssert;
-const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const js = @import("zig-js");
 const font = @import("../main.zig");

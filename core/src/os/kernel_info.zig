@@ -12,16 +12,3 @@ pub fn getKernelInfo(alloc: std.mem.Allocator) ?[]const u8 {
     defer alloc.free(kernel_info);
     return alloc.dupe(u8, std.mem.trim(u8, kernel_info, &std.ascii.whitespace)) catch return null;
 }
-
-test "read /proc/sys/kernel/osrelease" {
-    if (comptime builtin.os.tag != .linux) return null;
-    const allocator = std.testing.allocator;
-
-    const kernel_info = getKernelInfo(allocator).?;
-    defer allocator.free(kernel_info);
-
-    // Since we can't hardcode the info in tests, just check
-    // if something was read from the file
-    try std.testing.expect(kernel_info.len > 0);
-    try std.testing.expect(!std.mem.eql(u8, kernel_info, ""));
-}

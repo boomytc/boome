@@ -27,7 +27,3 @@ pub const Frame = opaque {
         return @ptrFromInt(@intFromPtr(c.CTFrameGetLines(@ptrCast(self))));
     }
 };
-
-test {
-    // See framesetter tests...
-}

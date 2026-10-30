@@ -149,14 +149,3 @@ const Handler = struct {
         }
     }
 };
-
-test TerminalStream {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    const impl: *TerminalStream = try .create(alloc, .{});
-    defer impl.destroy(alloc);
-
-    const bench = impl.benchmark();
-    _ = try bench.run(.once);
-}

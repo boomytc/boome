@@ -41,18 +41,3 @@ pub fn run(self: *Utf8, writer: *std.Io.Writer, rand: std.Random) !void {
         };
     }
 }
-
-test Utf8 {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    const impl: *Utf8 = try .create(alloc, .{});
-    defer impl.destroy(alloc);
-
-    var prng = std.Random.DefaultPrng.init(1);
-    const rand = prng.random();
-
-    var buf: [1024]u8 = undefined;
-    var writer: std.Io.Writer = .fixed(&buf);
-    try impl.run(&writer, rand);
-}

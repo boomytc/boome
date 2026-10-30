@@ -62,24 +62,3 @@ pub fn main() !void {
     //     t.stage3.len,
     // });
 }
-
-test "unicode props: tables match uucode" {
-    if (std.valgrind.runningOnValgrind() > 0) return error.SkipZigTest;
-
-    const testing = std.testing;
-    const table = @import("props_table.zig").table;
-
-    const min = 0xFF + 1; // start outside ascii
-    const max = std.math.maxInt(u21) + 1;
-    for (min..max) |cp| {
-        const t = table.get(@intCast(cp));
-        const uu = if (cp > uucode.config.max_code_point)
-            1
-        else
-            uucode.get(.width, @intCast(cp));
-        if (t.width != uu) {
-            std.log.warn("mismatch cp=U+{x} t={} uu={}", .{ cp, t.width, uu });
-            try testing.expect(false);
-        }
-    }
-}

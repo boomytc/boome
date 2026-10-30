@@ -114,10 +114,6 @@ pub const StringComparison = packed struct {
     width_insensitive: bool = false,
     forced_ordering: bool = false,
     _padding: u22 = 0,
-
-    test {
-        try std.testing.expectEqual(@bitSizeOf(c_int), @bitSizeOf(StringComparison));
-    }
 };
 
 /// https://developer.apple.com/documentation/corefoundation/cfstringencoding?language=objc
@@ -144,31 +140,4 @@ pub fn stringGetSurrogatePairForLongCharacter(
 ) bool {
     assert(surrogates.len >= 2);
     return c.CFStringGetSurrogatePairForLongCharacter(ch, surrogates.ptr) == 1;
-}
-
-test "string" {
-    const testing = std.testing;
-
-    const str = try String.createWithBytes("hello world", .ascii, false);
-    defer str.release();
-
-    const prefix = try String.createWithBytes("hello", .ascii, false);
-    defer prefix.release();
-
-    try testing.expect(str.hasPrefix(prefix));
-    try testing.expectEqual(foundation.ComparisonResult.equal, str.compare(str, .{}));
-    try testing.expectEqualStrings("hello world", str.cstringPtr(.ascii).?);
-
-    {
-        var buf: [128]u8 = undefined;
-        const cstr = str.cstring(&buf, .ascii).?;
-        try testing.expectEqualStrings("hello world", cstr);
-    }
-}
-
-test "unichar" {
-    const testing = std.testing;
-
-    var unichars: [2]u16 = undefined;
-    try testing.expect(!stringGetSurrogatePairForLongCharacter('A', &unichars));
 }

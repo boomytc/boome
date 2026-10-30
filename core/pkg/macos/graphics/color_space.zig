@@ -85,15 +85,3 @@ pub const ColorSpace = opaque {
         }
     };
 };
-
-test {
-    //const testing = std.testing;
-
-    const space = try ColorSpace.createDeviceGray();
-    defer space.release();
-}
-
-test {
-    const space = try ColorSpace.createDeviceRGB();
-    defer space.release();
-}

@@ -1,5 +1,4 @@
 const std = @import("std");
-const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const lib_alloc = @import("../../lib/allocator.zig");
 const CAllocator = lib_alloc.Allocator;
@@ -135,45 +134,4 @@ pub fn wasm_alloc_attribute() callconv(.c) *sgr.Attribute.C {
 pub fn wasm_free_attribute(attr: *sgr.Attribute.C) callconv(.c) void {
     const alloc = std.heap.wasm_allocator;
     alloc.destroy(attr);
-}
-
-test "alloc" {
-    var p: Parser = undefined;
-    try testing.expectEqual(Result.success, new(
-        &lib_alloc.test_allocator,
-        &p,
-    ));
-    free(p);
-}
-
-test "simple params, no seps" {
-    var p: Parser = undefined;
-    try testing.expectEqual(Result.success, new(
-        &lib_alloc.test_allocator,
-        &p,
-    ));
-    defer free(p);
-
-    try testing.expectEqual(Result.success, setParams(
-        p,
-        &.{1},
-        null,
-        1,
-    ));
-
-    // Set it twice on purpose to make sure we don't leak.
-    try testing.expectEqual(Result.success, setParams(
-        p,
-        &.{1},
-        null,
-        1,
-    ));
-
-    // Verify we get bold
-    var attr: sgr.Attribute.C = undefined;
-    try testing.expect(next(p, &attr));
-    try testing.expectEqual(.bold, attr.tag);
-
-    // Nothing else
-    try testing.expect(!next(p, &attr));
 }

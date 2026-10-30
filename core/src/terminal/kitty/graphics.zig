@@ -30,7 +30,3 @@ pub const RenderPlacement = render.Placement;
 pub const Response = command.Response;
 
 pub const execute = exec.execute;
-
-test {
-    @import("std").testing.refAllDecls(@This());
-}

@@ -9,7 +9,6 @@ const ScreenSet = @This();
 
 const std = @import("std");
 const assert = @import("../quirks.zig").inlineAssert;
-const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const Screen = @import("Screen.zig");
 
@@ -91,16 +90,4 @@ pub fn remove(
 pub fn switchTo(self: *ScreenSet, key: Key) void {
     self.active_key = key;
     self.active = self.all.get(key).?;
-}
-
-test ScreenSet {
-    const alloc = testing.allocator;
-    var set: ScreenSet = try .init(alloc, .default);
-    defer set.deinit(alloc);
-    try testing.expectEqual(.primary, set.active_key);
-
-    // Initialize a secondary screen
-    _ = try set.getInit(alloc, .alternate, .default);
-    set.switchTo(.alternate);
-    try testing.expectEqual(.alternate, set.active_key);
 }

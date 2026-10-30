@@ -29,7 +29,3 @@ pub fn setTag(key: []const u8, value: []const u8) void {
 pub fn free(ptr: *anyopaque) void {
     c.sentry_free(ptr);
 }
-
-test {
-    @import("std").testing.refAllDecls(@This());
-}

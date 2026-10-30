@@ -1,5 +1,3 @@
-const std = @import("std");
-
 /// The state of a mouse button.
 ///
 /// This is backed by a c_int so we can use this as-is for our embedding API.
@@ -91,14 +89,4 @@ pub const ScrollMods = packed struct(u8) {
     momentum: Momentum = .none,
 
     _padding: u4 = 0,
-
-    // For our own understanding
-    test {
-        const testing = std.testing;
-        try testing.expectEqual(@as(u8, @bitCast(ScrollMods{})), @as(u8, 0b0));
-        try testing.expectEqual(
-            @as(u8, @bitCast(ScrollMods{ .precision = true })),
-            @as(u8, 0b0000_0001),
-        );
-    }
 };

@@ -9,7 +9,3 @@ pub const graphics = if (build_options.kitty_graphics) @import("kitty/graphics.z
 pub const KeyFlags = key.Flags;
 pub const KeyFlagStack = key.FlagStack;
 pub const KeySetMode = key.SetMode;
-
-test {
-    @import("std").testing.refAllDecls(@This());
-}

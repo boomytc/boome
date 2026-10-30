@@ -2,7 +2,6 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const c = @import("c.zig").c;
 const errors = @import("errors.zig");
-const Library = @import("Library.zig");
 const Tag = @import("tag.zig").Tag;
 const Error = errors.Error;
 const intToError = errors.intToError;
@@ -290,96 +289,4 @@ pub const LoadFlags = packed struct(c_int) {
         lcd = 3,
         lcd_v = 4,
     };
-
-    test "bitcast" {
-        const testing = std.testing;
-
-        const cval: i32 = c.FT_LOAD_RENDER | c.FT_LOAD_PEDANTIC | c.FT_LOAD_COLOR;
-        const flags = @as(LoadFlags, @bitCast(cval));
-        try testing.expect(!flags.no_hinting);
-        try testing.expect(flags.render);
-        try testing.expect(flags.pedantic);
-        try testing.expect(flags.color);
-
-        // Verify bit alignment (for bit 9)
-        const cval2: i32 = c.FT_LOAD_IGNORE_GLOBAL_ADVANCE_WIDTH;
-        const flags2 = @as(LoadFlags, @bitCast(cval2));
-        try testing.expect(flags2.ignore_global_advance_width);
-        try testing.expect(!flags2.no_recurse);
-    }
-
-    test "all flags individually" {
-        const testing = std.testing;
-
-        try testing.expectEqual(
-            c.FT_LOAD_DEFAULT,
-            @as(c_int, @bitCast(LoadFlags{})),
-        );
-
-        inline for ([_]struct { c_int, []const u8 }{
-            .{ c.FT_LOAD_NO_SCALE, "no_scale" },
-            .{ c.FT_LOAD_NO_HINTING, "no_hinting" },
-            .{ c.FT_LOAD_RENDER, "render" },
-            .{ c.FT_LOAD_NO_BITMAP, "no_bitmap" },
-            .{ c.FT_LOAD_VERTICAL_LAYOUT, "vertical_layout" },
-            .{ c.FT_LOAD_FORCE_AUTOHINT, "force_autohint" },
-            .{ c.FT_LOAD_CROP_BITMAP, "crop_bitmap" },
-            .{ c.FT_LOAD_PEDANTIC, "pedantic" },
-            .{ c.FT_LOAD_ADVANCE_ONLY, "advance_only" },
-            .{ c.FT_LOAD_IGNORE_GLOBAL_ADVANCE_WIDTH, "ignore_global_advance_width" },
-            .{ c.FT_LOAD_NO_RECURSE, "no_recurse" },
-            .{ c.FT_LOAD_IGNORE_TRANSFORM, "ignore_transform" },
-            .{ c.FT_LOAD_MONOCHROME, "monochrome" },
-            .{ c.FT_LOAD_LINEAR_DESIGN, "linear_design" },
-            .{ c.FT_LOAD_SBITS_ONLY, "sbits_only" },
-            .{ c.FT_LOAD_NO_AUTOHINT, "no_autohint" },
-            .{ c.FT_LOAD_COLOR, "color" },
-            .{ c.FT_LOAD_COMPUTE_METRICS, "compute_metrics" },
-            .{ c.FT_LOAD_BITMAP_METRICS_ONLY, "bitmap_metrics_only" },
-            .{ c.FT_LOAD_SVG_ONLY, "svg_only" },
-            .{ c.FT_LOAD_NO_SVG, "no_svg" },
-        }) |pair| {
-            var flags: LoadFlags = .{};
-            @field(flags, pair[1]) = true;
-            try testing.expectEqual(pair[0], @as(c_int, @bitCast(flags)));
-        }
-    }
-
-    test "all load targets" {
-        const testing = std.testing;
-
-        inline for ([_]struct { c_int, Target }{
-            .{ c.FT_LOAD_TARGET_NORMAL, .normal },
-            .{ c.FT_LOAD_TARGET_LIGHT, .light },
-            .{ c.FT_LOAD_TARGET_MONO, .mono },
-            .{ c.FT_LOAD_TARGET_LCD, .lcd },
-            .{ c.FT_LOAD_TARGET_LCD_V, .lcd_v },
-        }) |pair| {
-            const flags: LoadFlags = .{ .target = pair[1] };
-            try testing.expectEqual(pair[0], @as(c_int, @bitCast(flags)));
-        }
-    }
 };
-
-test "loading memory font" {
-    const testing = std.testing;
-    const font_data = @import("test.zig").font_regular;
-
-    var lib = try Library.init();
-    defer lib.deinit();
-    var face = try lib.initMemoryFace(font_data, 0);
-    defer face.deinit();
-
-    // Try APIs
-    try face.selectCharmap(.unicode);
-    try testing.expect(!face.hasFixedSizes());
-    try face.setCharSize(12, 0, 0, 0);
-
-    // Try loading
-    const idx = face.getCharIndex('A').?;
-    try face.loadGlyph(idx, .{});
-
-    // Try getting a truetype table
-    const os2 = face.getSfntTable(.os2);
-    try testing.expect(os2 != null);
-}

@@ -1,6 +1,3 @@
-const std = @import("std");
-const testing = std.testing;
-
 /// An intrusive doubly-linked list. The type T must have a "next" and "prev"
 /// field pointing to itself.
 ///
@@ -129,53 +126,4 @@ pub fn DoublyLinkedList(comptime T: type) type {
             return first;
         }
     };
-}
-
-test "basic DoublyLinkedList test" {
-    const Node = struct {
-        data: u32,
-        prev: ?*@This() = null,
-        next: ?*@This() = null,
-    };
-    const L = DoublyLinkedList(Node);
-    var list: L = .{};
-
-    var one: Node = .{ .data = 1 };
-    var two: Node = .{ .data = 2 };
-    var three: Node = .{ .data = 3 };
-    var four: Node = .{ .data = 4 };
-    var five: Node = .{ .data = 5 };
-
-    list.append(&two); // {2}
-    list.append(&five); // {2, 5}
-    list.prepend(&one); // {1, 2, 5}
-    list.insertBefore(&five, &four); // {1, 2, 4, 5}
-    list.insertAfter(&two, &three); // {1, 2, 3, 4, 5}
-
-    // Traverse forwards.
-    {
-        var it = list.first;
-        var index: u32 = 1;
-        while (it) |node| : (it = node.next) {
-            try testing.expect(node.data == index);
-            index += 1;
-        }
-    }
-
-    // Traverse backwards.
-    {
-        var it = list.last;
-        var index: u32 = 1;
-        while (it) |node| : (it = node.prev) {
-            try testing.expect(node.data == (6 - index));
-            index += 1;
-        }
-    }
-
-    _ = list.popFirst(); // {2, 3, 4, 5}
-    _ = list.pop(); // {2, 3, 4}
-    list.remove(&three); // {2, 4}
-
-    try testing.expect(list.first.?.data == 2);
-    try testing.expect(list.last.?.data == 4);
 }

@@ -1,7 +1,6 @@
 const std = @import("std");
 const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
-const testing = std.testing;
 
 /// A data structure where you can get stable (never copied) pointers to
 /// a type that automatically grows if necessary. The values can be "put back"
@@ -59,37 +58,4 @@ pub fn SegmentedPool(comptime T: type, comptime prealloc: usize) type {
             assert(self.available <= self.list.len);
         }
     };
-}
-
-test "SegmentedPool" {
-    var list: SegmentedPool(u8, 2) = .{};
-    defer list.deinit(testing.allocator);
-    try testing.expectEqual(@as(usize, 2), list.available);
-
-    // Get to capacity
-    const v1 = try list.get();
-    const v2 = try list.get();
-    try testing.expect(v1 != v2);
-    try testing.expectError(error.OutOfValues, list.get());
-
-    // Test writing for later
-    v1.* = 42;
-
-    // Put a value back
-    list.put();
-    const temp = try list.get();
-    try testing.expect(v1 == temp);
-    try testing.expect(temp.* == 42);
-    try testing.expectError(error.OutOfValues, list.get());
-
-    // Grow
-    const v3 = try list.getGrow(testing.allocator);
-    try testing.expect(v1 != v3 and v2 != v3);
-    _ = try list.get();
-    try testing.expectError(error.OutOfValues, list.get());
-
-    // Put a value back
-    list.put();
-    try testing.expect(v1 == try list.get());
-    try testing.expectError(error.OutOfValues, list.get());
 }

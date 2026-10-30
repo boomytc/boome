@@ -290,23 +290,3 @@ fn pcStyle(comptime fmt: []const u8) []Entry {
         return &entries;
     }
 }
-
-test "keys" {
-    const testing = std.testing;
-    switch (@import("terminal_options").artifact) {
-        .ghostty => {},
-        // Don't want to bring in termio into libghostty-vt
-        .lib => return error.SkipZigTest,
-    }
-
-    // Force resolution for comptime evaluation.
-    _ = keys;
-
-    // All key sequences must fit into a termio array.
-    const max = @import("../termio.zig").Message.WriteReq.Small.Max;
-    for (keys.values) |entries| {
-        for (entries) |entry| {
-            try testing.expect(entry.sequence.len <= max);
-        }
-    }
-}

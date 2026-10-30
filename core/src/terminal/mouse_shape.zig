@@ -64,10 +64,6 @@ pub const MouseShape = enum(c_int) {
             .none => void,
         };
     };
-
-    test "ghostty.h MouseShape" {
-        try lib.checkGhosttyHEnum(MouseShape, "GHOSTTY_MOUSE_SHAPE_");
-    }
 };
 
 const string_map = std.StaticStringMap(MouseShape).initComptime(.{
@@ -131,12 +127,3 @@ const string_map = std.StaticStringMap(MouseShape).initComptime(.{
     .{ "left_side", .w_resize },
     .{ "fleur", .all_scroll },
 });
-
-test "cursor shape from string" {
-    const testing = std.testing;
-    try testing.expectEqual(MouseShape.default, MouseShape.fromString("default").?);
-}
-
-test {
-    _ = std.testing.refAllDeclsRecursive(@This());
-}

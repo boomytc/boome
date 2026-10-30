@@ -91,18 +91,3 @@ pub fn next(self: *Utf8, writer: *std.Io.Writer, max_len: usize) Generator.Error
         rem -= l;
     }
 }
-
-test "utf8" {
-    const testing = std.testing;
-    var prng = std.Random.DefaultPrng.init(0);
-    var buf: [256]u8 = undefined;
-    var writer: std.Io.Writer = .fixed(&buf);
-    var v: Utf8 = .{ .rand = prng.random() };
-    v.min_len = buf.len;
-    v.max_len = buf.len;
-    const gen = v.generator();
-    try gen.next(&writer, buf.len);
-    const result = writer.buffered();
-    try testing.expectEqual(256, result.len);
-    try testing.expect(std.unicode.utf8ValidateSlice(result));
-}

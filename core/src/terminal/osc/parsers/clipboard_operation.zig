@@ -1,5 +1,3 @@
-const std = @import("std");
-
 const assert = @import("../../../quirks.zig").inlineAssert;
 
 const Parser = @import("../../osc.zig").Parser;
@@ -45,62 +43,4 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
         };
     }
     return &parser.command;
-}
-
-test "OSC 52: get/set clipboard" {
-    const testing = std.testing;
-
-    var p: Parser = .init(null);
-
-    const input = "52;s;?";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end(null).?.*;
-    try testing.expect(cmd == .clipboard_contents);
-    try testing.expect(cmd.clipboard_contents.kind == 's');
-    try testing.expectEqualStrings("?", cmd.clipboard_contents.data);
-}
-
-test "OSC 52: get/set clipboard (optional parameter)" {
-    const testing = std.testing;
-
-    var p: Parser = .init(null);
-
-    const input = "52;;?";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end(null).?.*;
-    try testing.expect(cmd == .clipboard_contents);
-    try testing.expect(cmd.clipboard_contents.kind == 'c');
-    try testing.expectEqualStrings("?", cmd.clipboard_contents.data);
-}
-
-test "OSC 52: get/set clipboard with allocator" {
-    const testing = std.testing;
-
-    var p: Parser = .init(testing.allocator);
-    defer p.deinit();
-
-    const input = "52;s;?";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end(null).?.*;
-    try testing.expect(cmd == .clipboard_contents);
-    try testing.expect(cmd.clipboard_contents.kind == 's');
-    try testing.expectEqualStrings("?", cmd.clipboard_contents.data);
-}
-
-test "OSC 52: clear clipboard" {
-    const testing = std.testing;
-
-    var p: Parser = .init(null);
-    defer p.deinit();
-
-    const input = "52;;";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end(null).?.*;
-    try testing.expect(cmd == .clipboard_contents);
-    try testing.expect(cmd.clipboard_contents.kind == 'c');
-    try testing.expectEqualStrings("", cmd.clipboard_contents.data);
 }

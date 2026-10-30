@@ -47,20 +47,4 @@ pub const Renderer = switch (build_config.renderer) {
 pub const Health = enum(c_int) {
     healthy,
     unhealthy,
-
-    test "ghostty.h Health" {
-        try lib.checkGhosttyHEnum(Health, "GHOSTTY_RENDERER_HEALTH_");
-    }
 };
-
-test {
-    // Our comptime-chosen renderer
-    _ = Renderer;
-
-    _ = cursor;
-    _ = message;
-    _ = shadertoy;
-    _ = size;
-    _ = Thread;
-    _ = State;
-}

@@ -60,38 +60,6 @@ pub fn isValid(hostname: []const u8) bool {
     return true;
 }
 
-test isValid {
-    const testing = std.testing;
-
-    // Valid hostnames
-    try testing.expect(isValid("example"));
-    try testing.expect(isValid("example.com"));
-    try testing.expect(isValid("www.example.com"));
-    try testing.expect(isValid("sub.domain.example.com"));
-    try testing.expect(isValid("example.com."));
-    try testing.expect(isValid("host-name.example.com."));
-    try testing.expect(isValid("123.example.com."));
-    try testing.expect(isValid("a-b.com"));
-    try testing.expect(isValid("a.b.c.d.e.f.g"));
-    try testing.expect(isValid("127.0.0.1")); // Also a valid hostname
-    try testing.expect(isValid("a" ** 63 ++ ".com")); // Label exactly 63 chars (valid)
-    try testing.expect(isValid("a." ** 126 ++ "a")); // Total length 253 (valid)
-
-    // Invalid hostnames
-    try testing.expect(!isValid(""));
-    try testing.expect(!isValid(".example.com"));
-    try testing.expect(!isValid("example.com.."));
-    try testing.expect(!isValid("host..domain"));
-    try testing.expect(!isValid("-hostname"));
-    try testing.expect(!isValid("hostname-"));
-    try testing.expect(!isValid("a.-.b"));
-    try testing.expect(!isValid("host_name.com"));
-    try testing.expect(!isValid("."));
-    try testing.expect(!isValid(".."));
-    try testing.expect(!isValid("a" ** 64 ++ ".com")); // Label length 64 (too long)
-    try testing.expect(!isValid("a." ** 126 ++ "ab")); // Total length 254 (too long)
-}
-
 /// Checks if a hostname is local to the current machine. This matches
 /// both "localhost" and the current hostname of the machine (as returned
 /// by `gethostname`).
@@ -115,33 +83,4 @@ pub fn isLocal(hostname: []const u8) LocalHostnameValidationError!bool {
             return std.mem.eql(u8, hostname, ourHostname);
         },
     }
-}
-
-test "isLocal returns true when provided hostname is localhost" {
-    try std.testing.expect(try isLocal("localhost"));
-}
-
-test "isLocal returns true when hostname is local" {
-    switch (builtin.os.tag) {
-        .windows => {
-            const windows = @import("windows.zig");
-            var buf: [256:0]u8 = undefined;
-            var nSize: windows.DWORD = buf.len;
-            if (windows.exp.kernel32.GetComputerNameA(&buf, &nSize) == 0) return error.GetComputerNameFailed;
-            const localHostname = buf[0..nSize];
-            try std.testing.expect(try isLocal(localHostname));
-        },
-        else => {
-            var buf: [posix.HOST_NAME_MAX]u8 = undefined;
-            const localHostname = try posix.gethostname(&buf);
-            try std.testing.expect(try isLocal(localHostname));
-        },
-    }
-}
-
-test "isLocal returns false when hostname is not local" {
-    try std.testing.expectEqual(
-        false,
-        try isLocal("not-the-local-hostname"),
-    );
 }

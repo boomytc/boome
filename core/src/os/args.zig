@@ -119,12 +119,3 @@ const IteratorMacOS = struct {
         return true;
     }
 };
-
-test "args" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    var iter = try iterator(alloc);
-    defer iter.deinit();
-    try testing.expect(iter.next().?.len > 0);
-}

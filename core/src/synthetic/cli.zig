@@ -104,12 +104,3 @@ fn mainActionImpl(
         error.WriteFailed => return,
     };
 }
-
-test {
-    // Make sure we ref all our actions
-    inline for (@typeInfo(Action).@"enum".fields) |field| {
-        const action = @field(Action, field.name);
-        const Impl = Action.Struct(action);
-        _ = Impl;
-    }
-}

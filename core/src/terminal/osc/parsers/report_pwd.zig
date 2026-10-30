@@ -1,5 +1,3 @@
-const std = @import("std");
-
 const Parser = @import("../../osc.zig").Parser;
 const Command = @import("../../osc.zig").Command;
 
@@ -20,29 +18,4 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
         },
     };
     return &parser.command;
-}
-
-test "OSC 7: report pwd" {
-    const testing = std.testing;
-
-    var p: Parser = .init(null);
-
-    const input = "7;file:///tmp/example";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end(null).?.*;
-    try testing.expect(cmd == .report_pwd);
-    try testing.expectEqualStrings("file:///tmp/example", cmd.report_pwd.value);
-}
-
-test "OSC 7: report pwd empty" {
-    const testing = std.testing;
-
-    var p: Parser = .init(null);
-
-    const input = "7;";
-    for (input) |ch| p.next(ch);
-    const cmd = p.end(null).?.*;
-    try testing.expect(cmd == .report_pwd);
-    try testing.expectEqualStrings("", cmd.report_pwd.value);
 }

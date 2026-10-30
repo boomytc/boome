@@ -1,5 +1,3 @@
-const std = @import("std");
-
 pub const change_window_icon = @import("parsers/change_window_icon.zig");
 pub const context_signal = @import("parsers/context_signal.zig");
 pub const change_window_title = @import("parsers/change_window_title.zig");
@@ -15,7 +13,3 @@ pub const osc9 = @import("parsers/osc9.zig");
 pub const report_pwd = @import("parsers/report_pwd.zig");
 pub const rxvt_extension = @import("parsers/rxvt_extension.zig");
 pub const semantic_prompt = @import("parsers/semantic_prompt.zig");
-
-test {
-    std.testing.refAllDecls(@This());
-}

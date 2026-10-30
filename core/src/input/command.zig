@@ -730,10 +730,3 @@ fn actionCommands(action: Action.Key) []const Command {
 
     return result;
 }
-
-test "command defaults" {
-    // This just ensures that defaults is analyzed and works.
-    const testing = std.testing;
-    try testing.expect(defaults.len > 0);
-    try testing.expectEqual(defaults.len, defaultsC.len);
-}

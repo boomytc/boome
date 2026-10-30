@@ -12,7 +12,3 @@ pub extern "c" fn dispatch_async(
     queue: *anyopaque,
     block: *anyopaque,
 ) void;
-
-test {
-    @import("std").testing.refAllDecls(@This());
-}

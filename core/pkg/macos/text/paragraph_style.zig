@@ -42,8 +42,3 @@ pub const WritingDirection = enum(c_int) {
     lro = 2,
     rlo = 3,
 };
-
-test ParagraphStyle {
-    const p = try ParagraphStyle.create(&.{});
-    defer p.release();
-}

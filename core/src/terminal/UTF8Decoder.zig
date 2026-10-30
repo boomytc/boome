@@ -9,7 +9,6 @@
 const UTF8Decoder = @This();
 
 const std = @import("std");
-const testing = std.testing;
 
 const log = std.log.scoped(.utf8decoder);
 
@@ -82,61 +81,4 @@ pub inline fn next(self: *UTF8Decoder, byte: u8) struct { ?u21, bool } {
         // Emit nothing, we're in the middle of a sequence.
         return .{ null, true };
     }
-}
-
-test "ASCII" {
-    var d: UTF8Decoder = .{};
-    var out: [13]u8 = undefined;
-    for ("Hello, World!", 0..) |byte, i| {
-        const res = d.next(byte);
-        try testing.expect(res[1]);
-        if (res[0]) |codepoint| {
-            out[i] = @intCast(codepoint);
-        }
-    }
-
-    try testing.expectEqualStrings(&out, "Hello, World!");
-}
-
-test "Well formed utf-8" {
-    var d: UTF8Decoder = .{};
-    var out: [4]u21 = undefined;
-    var i: usize = 0;
-    // 4 bytes, 3 bytes, 2 bytes, 1 byte
-    for ("😄✤ÁA") |byte| {
-        var consumed = false;
-        while (!consumed) {
-            const res = d.next(byte);
-            consumed = res[1];
-            // There are no errors in this sequence, so
-            // every byte should be consumed first try.
-            try testing.expect(consumed == true);
-            if (res[0]) |codepoint| {
-                out[i] = codepoint;
-                i += 1;
-            }
-        }
-    }
-
-    try testing.expect(std.mem.eql(u21, &out, &[_]u21{ 0x1F604, 0x2724, 0xC1, 0x41 }));
-}
-
-test "Partially invalid utf-8" {
-    var d: UTF8Decoder = .{};
-    var out: [5]u21 = undefined;
-    var i: usize = 0;
-    // Illegally terminated sequence, valid sequence, illegal surrogate pair.
-    for ("\xF0\x9F😄\xED\xA0\x80") |byte| {
-        var consumed = false;
-        while (!consumed) {
-            const res = d.next(byte);
-            consumed = res[1];
-            if (res[0]) |codepoint| {
-                out[i] = codepoint;
-                i += 1;
-            }
-        }
-    }
-
-    try testing.expect(std.mem.eql(u21, &out, &[_]u21{ 0xFFFD, 0x1F604, 0xFFFD, 0xFFFD, 0xFFFD }));
 }

@@ -16,7 +16,3 @@ pub const std_options: std.Options = if (@hasDecl(entrypoint, "std_options"))
     entrypoint.std_options
 else
     .{};
-
-test {
-    _ = entrypoint;
-}

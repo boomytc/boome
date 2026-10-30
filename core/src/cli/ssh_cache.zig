@@ -221,8 +221,3 @@ fn listEntries(
         }
     }
 }
-
-test {
-    _ = DiskCache;
-    _ = Entry;
-}

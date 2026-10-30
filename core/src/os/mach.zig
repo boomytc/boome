@@ -144,7 +144,3 @@ const TaggedPageAllocator = struct {
         return null;
     }
 };
-
-test "VMTag.make" {
-    try std.testing.expectEqual(@as(i32, @bitCast(@as(u32, 240) << 24)), VMTag.application_specific_1.make());
-}

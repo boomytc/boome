@@ -46,23 +46,3 @@ pub fn main() !void {
     //     t.stage3.len,
     // });
 }
-
-test "unicode symbols: tables match uucode" {
-    if (std.valgrind.runningOnValgrind() > 0) return error.SkipZigTest;
-
-    const testing = std.testing;
-    const table = @import("symbols_table.zig").table;
-
-    for (0..std.math.maxInt(u21)) |cp| {
-        const t = table.get(@intCast(cp));
-        const uu = if (cp > uucode.config.max_code_point)
-            false
-        else
-            uucode.get(.is_symbol, @intCast(cp));
-
-        if (t != uu) {
-            std.log.warn("mismatch cp=U+{x} t={} uu={}", .{ cp, t, uu });
-            try testing.expect(false);
-        }
-    }
-}

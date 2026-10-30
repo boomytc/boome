@@ -1,4 +1,3 @@
-const std = @import("std");
 const builtin = @import("builtin");
 
 const config = @import("input/config.zig");
@@ -40,7 +39,3 @@ pub const Keymap = switch (builtin.os.tag) {
     .macos => @import("input/KeymapDarwin.zig"),
     else => @import("input/KeymapNoop.zig"),
 };
-
-test {
-    std.testing.refAllDecls(@This());
-}

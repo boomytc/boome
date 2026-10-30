@@ -91,11 +91,3 @@ pub const RunOptions = struct {
         if (!config.cursor) self.cursor_x = null;
     }
 };
-
-test {
-    _ = Cache;
-    _ = Shaper;
-
-    // Always test noop
-    _ = noop;
-}

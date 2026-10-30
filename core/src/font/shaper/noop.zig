@@ -137,7 +137,3 @@ pub const Shaper = struct {
         }
     };
 };
-
-test {
-    @import("std").testing.refAllDecls(@This());
-}

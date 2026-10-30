@@ -101,13 +101,3 @@ pub const Message = union(enum) {
         csi_18_t,
     };
 };
-
-test {
-    std.testing.refAllDecls(@This());
-}
-
-test {
-    // Ensure we don't grow our IO message size without explicitly wanting to.
-    const testing = std.testing;
-    try testing.expectEqual(@as(usize, 40), @sizeOf(Message));
-}

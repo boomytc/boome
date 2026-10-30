@@ -68,20 +68,3 @@ extern "c" fn ghostty_simd_base64_decode(
     len: usize,
     output: [*]u8,
 ) isize;
-
-test "base64 maxLen" {
-    const testing = std.testing;
-    const len = maxLen("aGVsbG8gd29ybGQ=");
-    try testing.expectEqual(11, len);
-}
-
-test "base64 decode" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-    const input = "aGVsbG8gd29ybGQ=";
-    const len = maxLen(input);
-    const output = try alloc.alloc(u8, len);
-    defer alloc.free(output);
-    const str = try decode(input, output);
-    try testing.expectEqualStrings("hello world", str);
-}

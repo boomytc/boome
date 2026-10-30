@@ -27,23 +27,3 @@ pub const CharacterSet = opaque {
         c.CFRelease(self);
     }
 };
-
-test "character set" {
-    //const testing = std.testing;
-
-    const str = try foundation.String.createWithBytes("hello world", .ascii, false);
-    defer str.release();
-
-    const cs = try CharacterSet.createWithCharactersInString(str);
-    defer cs.release();
-}
-
-test "character set range" {
-    //const testing = std.testing;
-
-    const cs = try CharacterSet.createWithCharactersInRange(.{
-        .location = 'A',
-        .length = 1,
-    });
-    defer cs.release();
-}

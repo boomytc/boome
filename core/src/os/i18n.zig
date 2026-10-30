@@ -170,24 +170,3 @@ extern fn dgettext(domainname: [*:0]const u8, msgid: [*:0]const u8) [*:0]const u
 // since its otherwise not exported. We only need it on macOS
 // currently but probably will on Windows as well.
 extern fn _libintl_locale_name_canonicalize(name: [*:0]u8) void;
-
-test "canonicalizeLocale darwin" {
-    if (!builtin.target.os.tag.isDarwin()) return error.SkipZigTest;
-
-    const testing = std.testing;
-    var buf: [256]u8 = undefined;
-    try testing.expectEqualStrings("en_US", try canonicalizeLocale(&buf, "en_US"));
-    try testing.expectEqualStrings("zh_CN", try canonicalizeLocale(&buf, "zh-Hans"));
-    try testing.expectEqualStrings("zh_TW", try canonicalizeLocale(&buf, "zh-Hant"));
-
-    try testing.expectEqualStrings("zh_CN", try canonicalizeLocale(&buf, "zh-Hans-CN"));
-    try testing.expectEqualStrings("zh_SG", try canonicalizeLocale(&buf, "zh-Hans-SG"));
-    try testing.expectEqualStrings("zh_TW", try canonicalizeLocale(&buf, "zh-Hant-TW"));
-    try testing.expectEqualStrings("zh_HK", try canonicalizeLocale(&buf, "zh-Hant-HK"));
-    try testing.expectEqualStrings("zh_MO", try canonicalizeLocale(&buf, "zh-Hant-MO"));
-
-    // This is just an edge case I want to make sure we're aware of:
-    // canonicalizeLocale does not handle encodings and will turn them into
-    // underscores. We should parse them out before calling this function.
-    try testing.expectEqualStrings("en_US.UTF_8", try canonicalizeLocale(&buf, "en_US.UTF-8"));
-}

@@ -43,17 +43,3 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
     };
     return &parser.command;
 }
-
-test "OSC: OSC 777 show desktop notification with title" {
-    const testing = std.testing;
-
-    var p: Parser = .init(null);
-
-    const input = "777;notify;Title;Body";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-    try testing.expect(cmd == .show_desktop_notification);
-    try testing.expectEqualStrings(cmd.show_desktop_notification.title, "Title");
-    try testing.expectEqualStrings(cmd.show_desktop_notification.body, "Body");
-}

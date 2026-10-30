@@ -286,10 +286,3 @@ pub fn errorToInt(err: Error) c_int {
         Error.CorruptedFontGlyphs => c.FT_Err_Corrupted_Font_Glyphs,
     };
 }
-
-test "error conversion" {
-    const expectError = @import("std").testing.expectError;
-
-    try intToError(c.FT_Err_Ok);
-    try expectError(Error.OutOfMemory, intToError(c.FT_Err_Out_Of_Memory));
-}

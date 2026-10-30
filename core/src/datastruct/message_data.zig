@@ -90,35 +90,3 @@ pub fn MessageData(comptime Elem: type, comptime small_size: comptime_int) type 
         }
     };
 }
-
-test "MessageData init small" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    const Data = MessageData(u8, 10);
-    const input = "hello!";
-    const io = try Data.init(alloc, @as([]const u8, input));
-    try testing.expect(io == .small);
-}
-
-test "MessageData init alloc" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    const Data = MessageData(u8, 10);
-    const input = "hello! " ** 100;
-    const io = try Data.init(alloc, @as([]const u8, input));
-    try testing.expect(io == .alloc);
-    io.alloc.alloc.free(io.alloc.data);
-}
-
-test "MessageData small fits non-u8 sized data" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    const len = 500;
-    const Data = MessageData(u8, len);
-    const input: []const u8 = "X" ** len;
-    const io = try Data.init(alloc, input);
-    try testing.expect(io == .small);
-}

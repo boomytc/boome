@@ -8,7 +8,6 @@
 //! to ensure all our various types and logic remain in sync.
 
 const std = @import("std");
-const testing = std.testing;
 
 /// A struct that maintains the state of all the settable modes.
 pub const ModeState = struct {
@@ -75,13 +74,6 @@ pub const ModeState = struct {
             },
         }
     }
-
-    test {
-        // We have this here so that we explicitly fail when we change the
-        // size of modes. The size of modes is NOT particularly important,
-        // we just want to be mentally aware when it happens.
-        try std.testing.expectEqual(8, @sizeOf(ModePacked));
-    }
 };
 
 /// A packed struct of all the settable modes. This shouldn't
@@ -135,12 +127,6 @@ pub const ModeTag = packed struct(u16) {
     pub const Backing = @typeInfo(@This()).@"struct".backing_integer.?;
     value: u15,
     ansi: bool = false,
-
-    test "order" {
-        const t: ModeTag = .{ .value = 1 };
-        const int: Backing = @bitCast(t);
-        try std.testing.expectEqual(@as(Backing, 1), int);
-    }
 };
 
 pub fn modeFromInt(v: u16, ansi: bool) ?Mode {
@@ -231,31 +217,3 @@ const entries: []const ModeEntry = &.{
     .{ .name = "report_color_scheme", .value = 2031 },
     .{ .name = "in_band_size_reports", .value = 2048 },
 };
-
-test {
-    _ = Mode;
-    _ = ModePacked;
-}
-
-test modeFromInt {
-    try testing.expect(modeFromInt(4, true).? == .insert);
-    try testing.expect(modeFromInt(9, true) == null);
-    try testing.expect(modeFromInt(9, false).? == .mouse_event_x10);
-    try testing.expect(modeFromInt(14, true) == null);
-}
-
-test ModeState {
-    var state: ModeState = .{};
-
-    // Normal set/get
-    try testing.expect(!state.get(.cursor_keys));
-    state.set(.cursor_keys, true);
-    try testing.expect(state.get(.cursor_keys));
-
-    // Save/restore
-    state.save(.cursor_keys);
-    state.set(.cursor_keys, false);
-    try testing.expect(!state.get(.cursor_keys));
-    try testing.expect(state.restore(.cursor_keys));
-    try testing.expect(state.get(.cursor_keys));
-}

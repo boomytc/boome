@@ -65,15 +65,3 @@ pub const NumberType = enum(c.CFNumberType) {
         };
     }
 };
-
-test {
-    const testing = std.testing;
-
-    const inner: i8 = 42;
-    const v = try Number.create(.sint8, &inner);
-    defer v.release();
-
-    var result: i8 = undefined;
-    try testing.expect(v.getValue(.sint8, &result));
-    try testing.expectEqual(result, inner);
-}

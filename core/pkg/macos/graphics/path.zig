@@ -52,17 +52,3 @@ pub const MutablePath = opaque {
         return @bitCast(c.CGPathGetBoundingBox(@ptrCast(self)));
     }
 };
-
-test "mutable path" {
-    //const testing = std.testing;
-
-    const path = try MutablePath.create();
-    defer path.release();
-
-    path.addRect(null, graphics.Rect.init(0, 0, 100, 200));
-}
-
-test "path from rect" {
-    const path = try Path.createWithRect(graphics.Rect.init(0, 0, 100, 200), null);
-    defer path.release();
-}

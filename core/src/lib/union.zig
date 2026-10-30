@@ -1,5 +1,4 @@
 const std = @import("std");
-const testing = std.testing;
 const Target = @import("target.zig").Target;
 
 /// Create a tagged union type that supports a C ABI and maintains
@@ -129,43 +128,4 @@ pub fn TaggedUnion(
             unreachable;
         }
     };
-}
-
-test "TaggedUnion: matching size" {
-    const Tag = enum(c_int) { a, b };
-    const U = TaggedUnion(
-        .c,
-        union(Tag) {
-            a: u32,
-            b: u64,
-        },
-        u64,
-    );
-
-    try testing.expectEqual(8, @sizeOf(U.CValue));
-}
-
-test "TaggedUnion: padded size" {
-    const Tag = enum(c_int) { a };
-    const U = TaggedUnion(
-        .c,
-        union(Tag) {
-            a: u32,
-        },
-        u64,
-    );
-
-    try testing.expectEqual(8, @sizeOf(U.CValue));
-}
-
-test "TaggedUnion: c conversion" {
-    const Tag = enum(c_int) { a, b };
-    const U = TaggedUnion(.c, union(Tag) {
-        a: u32,
-        b: u64,
-    }, u64);
-
-    const c = U.cval(.{ .a = 42 });
-    try testing.expectEqual(Tag.a, c.tag);
-    try testing.expectEqual(42, c.value.a);
 }

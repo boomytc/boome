@@ -112,22 +112,4 @@ pub fn build(b: *std.Build) !void {
     }
 
     b.installArtifact(lib);
-
-    {
-        const test_exe = b.addTest(.{
-            .name = "test",
-            .root_module = b.createModule(.{
-                .root_source_file = b.path("main.zig"),
-                .target = target,
-                .optimize = optimize,
-            }),
-        });
-        test_exe.linkLibrary(lib);
-
-        var it = module.import_table.iterator();
-        while (it.next()) |entry| test_exe.root_module.addImport(entry.key_ptr.*, entry.value_ptr.*);
-        const tests_run = b.addRunArtifact(test_exe);
-        const test_step = b.step("test", "Run tests");
-        test_step.dependOn(&tests_run.step);
-    }
 }

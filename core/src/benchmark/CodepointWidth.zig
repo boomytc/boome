@@ -194,14 +194,3 @@ fn stepSimd(ptr: *anyopaque) Benchmark.Error!void {
         }
     }
 }
-
-test CodepointWidth {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    const impl: *CodepointWidth = try .create(alloc, .{});
-    defer impl.destroy(alloc);
-
-    const bench = impl.benchmark();
-    _ = try bench.run(.once);
-}

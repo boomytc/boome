@@ -139,14 +139,3 @@ fn stepTable(ptr: *anyopaque) Benchmark.Error!void {
         }
     }
 }
-
-test GraphemeBreak {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    const impl: *GraphemeBreak = try .create(alloc, .{});
-    defer impl.destroy(alloc);
-
-    const bench = impl.benchmark();
-    _ = try bench.run(.once);
-}

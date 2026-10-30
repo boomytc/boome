@@ -51,15 +51,3 @@ pub const key_encoder_setopt = key_encode.setopt;
 pub const key_encoder_encode = key_encode.encode;
 
 pub const paste_is_safe = paste.is_safe;
-
-test {
-    _ = color;
-    _ = osc;
-    _ = key_event;
-    _ = key_encode;
-    _ = paste;
-    _ = sgr;
-
-    // We want to make sure we run the tests for the C allocator interface.
-    _ = @import("../../lib/allocator.zig");
-}

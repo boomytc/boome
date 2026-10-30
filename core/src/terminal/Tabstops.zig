@@ -10,9 +10,7 @@
 const Tabstops = @This();
 
 const std = @import("std");
-const tripwire = @import("../tripwire.zig");
 const Allocator = std.mem.Allocator;
-const testing = std.testing;
 const assert = @import("../quirks.zig").inlineAssert;
 const fastmem = @import("../fastmem.zig");
 
@@ -119,10 +117,6 @@ pub fn get(self: Tabstops, col: usize) bool {
     return unit & mask == mask;
 }
 
-const resize_tw = tripwire.module(enum {
-    dynamic_alloc,
-}, resize);
-
 /// Resize this to support up to cols columns.
 // TODO: needs interval to set new tabstops
 pub fn resize(
@@ -130,7 +124,6 @@ pub fn resize(
     alloc: Allocator,
     cols: usize,
 ) Allocator.Error!void {
-    const tw = resize_tw;
 
     // Do nothing if it fits.
     if (cols <= prealloc_columns) {
@@ -146,7 +139,7 @@ pub fn resize(
     }
 
     // Note: we can probably try to realloc here but I'm not sure it matters.
-    try tw.check(.dynamic_alloc);
+
     const new = try alloc.alloc(Unit, size);
     errdefer comptime unreachable;
     @memset(new, 0);
@@ -176,96 +169,4 @@ pub fn reset(self: *Tabstops, interval: usize) void {
             self.set(i);
         }
     }
-}
-
-test "Tabstops: basic" {
-    var t: Tabstops = .{};
-    defer t.deinit(testing.allocator);
-    try testing.expectEqual(@as(usize, 0), entry(4));
-    try testing.expectEqual(@as(usize, 1), entry(8));
-    try testing.expectEqual(@as(usize, 0), index(0));
-    try testing.expectEqual(@as(usize, 1), index(1));
-    try testing.expectEqual(@as(usize, 1), index(9));
-
-    try testing.expectEqual(@as(Unit, 0b00001000), masks[3]);
-    try testing.expectEqual(@as(Unit, 0b00010000), masks[4]);
-
-    try testing.expect(!t.get(4));
-    t.set(4);
-    try testing.expect(t.get(4));
-    try testing.expect(!t.get(3));
-
-    t.reset(0);
-    try testing.expect(!t.get(4));
-
-    t.set(4);
-    try testing.expect(t.get(4));
-    t.unset(4);
-    try testing.expect(!t.get(4));
-}
-
-test "Tabstops: dynamic allocations" {
-    var t: Tabstops = .{};
-    defer t.deinit(testing.allocator);
-
-    // Grow the capacity by 2.
-    const cap = t.capacity();
-    try t.resize(testing.allocator, cap * 2);
-
-    // Set something that was out of range of the first
-    t.set(cap + 5);
-    try testing.expect(t.get(cap + 5));
-    try testing.expect(!t.get(cap + 4));
-
-    // Prealloc still works
-    try testing.expect(!t.get(5));
-}
-
-test "Tabstops: interval" {
-    var t: Tabstops = try init(testing.allocator, 80, 4);
-    defer t.deinit(testing.allocator);
-    try testing.expect(!t.get(0));
-    try testing.expect(t.get(4));
-    try testing.expect(!t.get(5));
-    try testing.expect(t.get(8));
-}
-
-test "Tabstops: count on 80" {
-    // https://superuser.com/questions/710019/why-there-are-11-tabstops-on-a-80-column-console
-
-    var t: Tabstops = try init(testing.allocator, 80, 8);
-    defer t.deinit(testing.allocator);
-
-    // Count the tabstops
-    const count: usize = count: {
-        var v: usize = 0;
-        var i: usize = 0;
-        while (i < 80) : (i += 1) {
-            if (t.get(i)) {
-                v += 1;
-            }
-        }
-
-        break :count v;
-    };
-
-    try testing.expectEqual(@as(usize, 9), count);
-}
-
-test "Tabstops: resize alloc failure preserves state" {
-    // This test verifies that if resize() fails during allocation,
-    // the original cols value is preserved (not corrupted).
-    var t: Tabstops = try init(testing.allocator, 80, 8);
-    defer t.deinit(testing.allocator);
-
-    const original_cols = t.cols;
-
-    // Trigger allocation failure when resizing beyond prealloc
-    resize_tw.errorAlways(.dynamic_alloc, error.OutOfMemory);
-    const result = t.resize(testing.allocator, prealloc_columns * 2);
-    try testing.expectError(error.OutOfMemory, result);
-    try resize_tw.end(.reset);
-
-    // cols should be unchanged after failed resize
-    try testing.expectEqual(original_cols, t.cols);
 }

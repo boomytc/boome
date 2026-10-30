@@ -127,8 +127,3 @@ const raw_entries: []const RawEntry = &.{
     .{ .alt_left, 57443, 'u', true },
     .{ .alt_right, 57449, 'u', true },
 };
-
-test {
-    // To force comptime to test it
-    _ = entries;
-}

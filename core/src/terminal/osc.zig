@@ -14,8 +14,6 @@ const Allocator = mem.Allocator;
 const LibEnum = @import("../lib/enum.zig").Enum;
 const kitty_color = @import("kitty/color.zig");
 const parsers = @import("osc/parsers.zig");
-const encoding = @import("osc/encoding.zig");
-const lib = @import("../lib/main.zig");
 
 pub const color = parsers.color;
 pub const semantic_prompt = parsers.semantic_prompt;
@@ -203,10 +201,6 @@ pub const Command = union(Key) {
             @"error",
             indeterminate,
             pause,
-
-            test "ghostty.h Command.ProgressReport.State" {
-                try lib.checkGhosttyHEnum(State, "GHOSTTY_PROGRESS_STATE_");
-            }
         };
 
         state: State,
@@ -764,8 +758,3 @@ pub const Parser = struct {
         };
     }
 };
-
-test {
-    _ = parsers;
-    _ = encoding;
-}

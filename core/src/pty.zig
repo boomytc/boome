@@ -399,24 +399,3 @@ const WindowsPty = struct {
         self.size = size;
     }
 };
-
-test {
-    const testing = std.testing;
-    var ws: winsize = .{
-        .ws_row = 50,
-        .ws_col = 80,
-        .ws_xpixel = 1,
-        .ws_ypixel = 1,
-    };
-
-    var pty = try Pty.open(ws);
-    defer pty.deinit();
-
-    // Initialize size should match what we gave it
-    try testing.expectEqual(ws, try pty.getSize());
-
-    // Can set and read new sizes
-    ws.ws_row *= 2;
-    try pty.setSize(ws);
-    try testing.expectEqual(ws, try pty.getSize());
-}

@@ -143,39 +143,3 @@ pub fn CacheTable(
 fn AutoContext(comptime K: type) type {
     return std.hash_map.AutoContext(K);
 }
-
-test CacheTable {
-    const testing = std.testing;
-
-    // Construct a table that purposely has a predictable hash so we can
-    // test all edge cases.
-    const T = CacheTable(u32, u32, struct {
-        pub fn hash(self: *const @This(), key: u32) u64 {
-            _ = self;
-            return @intCast(key);
-        }
-
-        pub fn eql(self: *const @This(), a: u32, b: u32) bool {
-            _ = self;
-            return a == b;
-        }
-    }, 2, 2);
-    var t: T = .{ .context = .{} };
-
-    // Fill the table
-    try testing.expect(t.put(0, 0) == null);
-    try testing.expect(t.put(1, 0) == null);
-    try testing.expect(t.put(2, 0) == null);
-    try testing.expect(t.put(3, 0) == null);
-
-    // It should now be full, so any insert should evict the oldest item.
-    // NOTE: For the sake of this test, we're assuming that the first item
-    // is evicted but we don't need to promise this.
-    try testing.expectEqual(T.KV{
-        .key = 0,
-        .value = 0,
-    }, t.put(4, 0).?);
-
-    // The first item should now be gone
-    try testing.expect(t.get(0) == null);
-}

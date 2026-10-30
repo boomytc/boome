@@ -1,6 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const testing = std.testing;
 
 /// Convenience functions
 pub const convenience = @import("allocator/convenience.zig");
@@ -22,9 +21,6 @@ pub const VTable = extern struct {
 pub fn default(c_alloc_: ?*const Allocator) std.mem.Allocator {
     // If we're given an allocator, use it.
     if (c_alloc_) |c_alloc| return c_alloc.zig();
-
-    // Tests always use the test allocator so we can detect leaks.
-    if (comptime builtin.is_test) return testing.allocator;
 
     // If we have libc, use that. We prefer libc if we have it because
     // its generally fast but also lets the embedder easily override
@@ -230,35 +226,3 @@ const ZigAllocator = struct {
 
 /// libc Allocator, requires linking libc
 pub const c_allocator: Allocator = .fromZig(&std.heap.c_allocator);
-
-/// Allocator that can be sent to the C API that does full
-/// leak checking within Zig tests. This should only be used from
-/// Zig tests.
-pub const test_allocator: Allocator = b: {
-    if (!builtin.is_test) @compileError("test_allocator can only be used in tests");
-    break :b .fromZig(&testing.allocator);
-};
-
-test "c allocator" {
-    if (!comptime builtin.link_libc) return error.SkipZigTest;
-
-    const alloc = c_allocator.zig();
-    const str = try alloc.alloc(u8, 10);
-    defer alloc.free(str);
-    try testing.expectEqual(10, str.len);
-}
-
-test "fba allocator" {
-    var buf: [1024]u8 = undefined;
-    var fba: std.heap.FixedBufferAllocator = .init(&buf);
-    const zig_alloc = fba.allocator();
-
-    // Convert the Zig allocator to a C interface
-    const c_alloc: Allocator = .fromZig(&zig_alloc);
-
-    // Convert back to Zig so we can test it.
-    const alloc = c_alloc.zig();
-    const str = try alloc.alloc(u8, 10);
-    defer alloc.free(str);
-    try testing.expectEqual(10, str.len);
-}

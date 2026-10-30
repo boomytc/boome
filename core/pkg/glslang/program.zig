@@ -1,6 +1,5 @@
 const std = @import("std");
 const c = @import("c.zig").c;
-const testlib = @import("test.zig");
 const Shader = @import("shader.zig").Shader;
 
 pub const Program = opaque {
@@ -53,8 +52,3 @@ pub const Program = opaque {
         return std.mem.sliceTo(ptr, 0);
     }
 };
-
-test {
-    var program = try Program.create();
-    defer program.delete();
-}

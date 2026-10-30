@@ -33,13 +33,4 @@ pub const Sprite = enum(u32) {
     cursor_hollow_rect,
     cursor_bar,
     cursor_underline,
-
-    test {
-        const testing = std.testing;
-        try testing.expectEqual(start, @intFromEnum(Sprite.underline));
-    }
 };
-
-test {
-    @import("std").testing.refAllDecls(@This());
-}

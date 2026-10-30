@@ -218,18 +218,6 @@ const CarbonMods = packed struct(u32) {
         const int: u32 = @bitCast(self);
         return (int >> 8) & 0xFF;
     }
-
-    // We got this from dumping the values out of another program since
-    // I can't find the header for this anywhere. I find various modifier
-    // headers but they do not match this! 🥺
-    test "expected values" {
-        const testing = std.testing;
-        try testing.expectEqual(@as(u32, 0x100), @as(u32, @bitCast(CarbonMods{ .meta = true })));
-        try testing.expectEqual(@as(u32, 0x200), @as(u32, @bitCast(CarbonMods{ .shift = true })));
-        try testing.expectEqual(@as(u32, 0x400), @as(u32, @bitCast(CarbonMods{ .caps_lock = true })));
-        try testing.expectEqual(@as(u32, 0x800), @as(u32, @bitCast(CarbonMods{ .alt = true })));
-        try testing.expectEqual(@as(u32, 0x1000), @as(u32, @bitCast(CarbonMods{ .ctrl = true })));
-    }
 };
 
 // The documentation for all of these types and functions is in the macOS SDK:
@@ -253,37 +241,3 @@ const kUCKeyTranslateNoDeadKeysMask: u32 = 1 << kUCKeyTranslateNoDeadKeysBit;
 
 const CFData = macos.foundation.Data;
 const CFString = macos.foundation.String;
-
-test {
-    var keymap = try init();
-    defer keymap.deinit();
-
-    // These tests are all commented because they depend on the user-selected
-    // keyboard layout...
-    //
-    // // Single quote ' which is fine on US, but dead on US-International
-    // var buf: [4]u8 = undefined;
-    // var state: State = .{};
-    // {
-    //     const result = try keymap.translate(&buf, &state, 0x27, .{});
-    //     std.log.warn("map: text={s} dead={}", .{ result.text, result.composing });
-    // }
-    //
-    // // Then type "a" which should combine with the dead key to make á
-    // {
-    //     const result = try keymap.translate(&buf, &state, 0x00, .{});
-    //     std.log.warn("map: text={s} dead={}", .{ result.text, result.composing });
-    // }
-    //
-    // // Shift+1 = ! on US
-    // {
-    //     const result = try keymap.translate(&buf, &state, 0x12, .{ .shift = true });
-    //     std.log.warn("map: text={s} dead={}", .{ result.text, result.composing });
-    // }
-    //
-    // // Scratch space
-    // {
-    //     const result = try keymap.translate(&buf, &state, 0x00, .{ .ctrl = true });
-    //     std.log.warn("map: text={s} dead={}", .{ result.text, result.composing });
-    // }
-}

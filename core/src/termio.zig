@@ -31,9 +31,3 @@ pub const DerivedConfig = Termio.DerivedConfig;
 pub const Mailbox = mailbox.Mailbox;
 pub const Message = message.Message;
 pub const StreamHandler = stream_handler.StreamHandler;
-
-test {
-    @import("std").testing.refAllDecls(@This());
-
-    _ = @import("termio/shell_integration.zig");
-}

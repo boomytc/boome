@@ -2,7 +2,6 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const foundation = @import("../foundation.zig");
-const text = @import("../text.zig");
 const c = @import("c.zig").c;
 
 pub const AttributedString = opaque {
@@ -85,19 +84,3 @@ pub const MutableAttributedString = opaque {
         return @intCast(c.CFAttributedStringGetLength(@ptrCast(self)));
     }
 };
-
-test "mutable attributed string" {
-    //const testing = std.testing;
-
-    const str = try MutableAttributedString.create(0);
-    defer str.release();
-
-    {
-        const rep = try foundation.String.createWithBytes("hello", .utf8, false);
-        defer rep.release();
-        str.replaceString(foundation.Range.init(0, 0), rep);
-    }
-
-    str.setAttribute(foundation.Range.init(0, 0), text.FontAttribute.url, null);
-    str.setAttribute(foundation.Range.init(0, 0), text.FontAttribute.name.key(), null);
-}

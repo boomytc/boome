@@ -30,12 +30,6 @@ pub const Tag = packed struct(u16) {
     pub const Backing = @typeInfo(@This()).@"struct".backing_integer.?;
     value: u15,
     question: bool = false,
-
-    test "order" {
-        const t: Tag = .{ .value = 1 };
-        const int: Backing = @bitCast(t);
-        try std.testing.expectEqual(@as(Backing, 1), int);
-    }
 };
 
 pub fn reqFromInt(v: u16, question: bool) ?Request {

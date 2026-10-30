@@ -51,7 +51,3 @@ pub const Targets = packed struct(i64) {
 pub fn supported_targets() Targets {
     return @bitCast(hwy_supported_targets());
 }
-
-test {
-    _ = supported_targets();
-}

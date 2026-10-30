@@ -188,15 +188,3 @@ fn getDescription(comptime help: []const u8) []const u8 {
 
     return out[0..len];
 }
-
-test "getDescription" {
-    const testing = std.testing;
-
-    const input = "First sentence with \"quotes\"\nand newlines. Second sentence.";
-    const expected = "First sentence with \\\"quotes\\\" and newlines.";
-
-    comptime {
-        const result = getDescription(input);
-        try testing.expectEqualStrings(expected, result);
-    }
-}

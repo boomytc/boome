@@ -51,65 +51,15 @@ xcodebuild -downloadComponent MetalToolchain
 
 依赖由 `scripts/prefetch-ghostty-deps.sh` 用 curl 下载。`zig fetch` 按 `build.zig.zon` 里的哈希校验。
 
-## 运行测试
+## 开发与验收
 
-同一时间只跑一个重型 Zig 构建。
+本仓库采用 `confident-development-conventions`。主要投入放在代码逻辑正确性：沿调用链确认状态归属、异步身份、副作用顺序和失败出口，优先用类型、不变量和模块边界保证逻辑闭环。
 
-### 运行核心的定向测试
+不保留常驻单元测试、集成测试、端到端测试及专用素材和依赖。完成实现后，按改动选择能回答当前疑点的最小验收：编译、静态检查、临时脚本或受影响的真实主路径。纯文档变更只核对内容与格式。同一份改动通过必要验收后即可交付，不因提交或交付重复执行。
 
-Xcode 27 自带的 macOS 27 SDK 里，有些系统 `.tbd` 只列出 `arm64e-macos`。Zig 0.15.2 不能把它们匹配到 `arm64-macos`。下面的命令先做一份 SDK 副本，再跑测试。副本写在 `~/.cache/boome`，不修改 Xcode。副本里还补上 libc++ 要用的 `INFINITY`。`scripts/xcrun-shim/xcrun` 只在参数同时包含 `--show-sdk-path` 和 `macosx` 时返回这份副本。其他 `xcrun` 请求交给 `/usr/bin/xcrun`。
+核心源码有变化时，运行 `./scripts/build.sh`，实际重编核心并链接应用。现有构建继续校验 Zig 版本、源码和工具链指纹、静态库导出及必需资源。运行时诊断、自检和调试断言保留。Xcode SDK 的兼容副本由构建脚本自动生成，不修改 Xcode；Swift 仍链接 Apple 原始 SDK。
 
-```bash
-export ZIG="$HOME/.local/zig/zig-aarch64-macos-0.15.2/zig"
-python3 scripts/macos-sdk-shim.py
-export PATH="$PWD/scripts/xcrun-shim:$PATH"
-cd core
-"$ZIG" build test \
-  -Dtest-filter=hyperlink -Dtest-filter=resize \
-  --cache-dir ../build/zig-cache -j4 --summary all
-```
-
-### 运行应用和构建检查
-
-在仓库根目录运行。
-
-标签和会话逻辑：
-
-```bash
-./scripts/test-tab-logic.sh
-```
-
-构建脚本和指纹：
-
-```bash
-python3 -m unittest discover -s tests -p test_core_build.py
-```
-
-zsh 命令输入协议：
-
-```bash
-python3 -m unittest discover -s tests -p test_command_input_zsh.py
-```
-
-真实的 libghostty 和 AppKit 控制器：
-
-```bash
-./scripts/test-core-runtime.sh
-```
-
-运行前至少唤醒一块显示器。两块显示器都休眠时，CoreVideo 没有活动显示器，这项检查失败。检查使用独立的应用标识，关闭默认配置，并使用临时 HOME。检查直接调用真实库里的会话迁移、编辑和退出确认接口。检查不拖动物理鼠标，也不覆盖跨屏操作。
-
-要让隔离测试窗口接收鼠标和键盘事件，先把辅助功能里的输入控制权限授给测试进程，然后运行：
-
-```bash
-BOOME_INPUT_UI_SMOKE=1 ./scripts/test-core-runtime.sh
-```
-
-要看 bash 的回退，运行：
-
-```bash
-BOOME_INPUT_FALLBACK_SMOKE=1 BOOME_TEST_SHELL=/bin/bash ./scripts/test-core-runtime.sh
-```
+临时测试、样本、mock、快照和验证输出放在系统临时目录或已有忽略目录，验收后清理，不增加长期测试依赖或运行入口。报告时区分编译成功、真实库检查和实窗操作；历史记录里的用户实测仍只归于用户。本轮没有验证的行为明确说明。
 
 ## 窗口行为
 
@@ -200,6 +150,8 @@ shell integration 还没报过目录时，新标签从家目录起。还没报�
 
 ## 验证记录
 
+以下记录保留各轮当时的证据与验证范围。2026-10-30 起按上述开发约定验收，历史测试套件和运行入口已移除。
+
 下面按日期记录当时跑过的检查，以及明确没跑的项目。助手操作和用户实测分开写。
 
 2026-10-14，在这台 Mac 上用 `./scripts/build.sh` 编出 `build/Boome.app`。当时 xcframework 已在，这次跳过了 Zig。然后执行 `open build/Boome.app`。进程由 LaunchServices 拉起，bundle id 是 `com.boom.boome`。窗口约 1100×720，左侧标签栏宽 200。当时选中行是蓝底白字，底部有 “+ New Tab”。
@@ -232,7 +184,7 @@ shell integration 还没报过目录时，新标签从家目录起。还没报�
 
 ### 2026-10-15：排序、分组和多窗口
 
-接管 Pi 留下的排序、分组和多窗口实现后，补修了两处。单成员组可以从边界脱组。多窗口退出期间，已经批准的窗口不能继续输入。同时删除了临时拖拽追踪输出。`./scripts/test-tab-logic.sh` 的 213 项检查、完整构建和空白检查通过。另用真实 libghostty 和 AppKit 控制器执行 30 项运行时集成检查，全部通过。覆盖范围包括连续迁移、同一个 surface 和 shell PID 与局部变量保持、编辑器焦点和未保存内容保留、最后一条会话移走后保留编辑器窗口、退出取消后恢复输入与焦点，以及再次退出时保存另一窗口的文档。
+接管 Pi 留下的排序、分组和多窗口实现后，补修了两处。单成员组可以从边界脱组。多窗口退出期间，已经批准的窗口不能继续输入。同时删除了临时拖拽追踪输出。当时的 213 项 Swift 逻辑检查、完整构建和空白检查通过。另用真实 libghostty 和 AppKit 控制器执行 30 项运行时集成检查，全部通过。覆盖范围包括连续迁移、同一个 surface 和 shell PID 与局部变量保持、编辑器焦点和未保存内容保留、最后一条会话移走后保留编辑器窗口、退出取消后恢复输入与焦点，以及再次退出时保存另一窗口的文档。
 
 本轮助手在实窗里复测了同窗口鼠标拖拽排序、右键跨窗口迁移，以及来源编辑器缓冲保留。连续跨窗口鼠标拖拽的助手自动化反复中断。随后用户在真实窗口里实测，确认没有问题。该项验收按用户实测通过。上面 30 项运行时集成检查直接调用迁移和确认 API。鼠标连续跨窗口拖拽的通过依据是用户实测，未计作助手自动化通过。
 
@@ -265,3 +217,11 @@ shell integration 还没报过目录时，新标签从家目录起。还没报�
 测试侧删除了重复的 “close window 不是 tab close”、已经移除的 ⌥⌘T 墓碑断言，以及和重复历史用例覆盖相同的 zsh 用例。重排断言改为校验真实顺序和替选身份。自然排序断言不再强解包。原子保存用例用硬链接证明写时替换。`ghostty.h` 改为按 `#filePath` 定位。zsh 用例去掉固定 sleep，并新增 “安装失败不导出邮箱路径” 回归。修正了 `boome-input` 在邮箱校验失败时把 `BOOME_INPUT_DIR` 留给子进程的问题。`ghostty-integration` 加载桥接模块前，增加资源是否存在的检查。
 
 本轮验证：250 项 Swift 检查，20 项构建支持检查，14 项真实 zsh 和 PTY 协议检查，45 项真实库和控制器运行时检查，17 项真实窗口 CGEvent 交互检查，3 项 bash 回退检查。核心因 shell integration 变化实际重编，并重新链接应用。随后不变的构建复用核心库。没有删除上游保留、当前又没有构建入口的 `core/src/lib_vt.zig` 和 `core/src/build/Config.zig` 执行项，以免扩大和上游源码的差异。`build/` 下未跟踪的旧重打包目录约 344 MB，已确认被忽略，没有当作代码清理删除。没有重做物理鼠标跨窗拖拽、跨屏，或任意 zsh 插件组合的人工验收。
+
+### 2026-10-30：采用 confident-development-conventions
+
+移除 Swift、Python 和 Zig 常驻测试、运行入口、专用依赖和素材，以及仅供测试的分配器、故障注入和辅助函数。保留 Inspector 使用的字体和页统计、运行时诊断、完整性断言及构建产物校验。参数解析不再借用测试分配器；不提供 arena 的类型直接使用调用方传入的分配器，保留原有分配行为。
+
+必要验收已完成：Zig 源码解析、格式和差异核对，保留构建脚本的语法检查，以及 `./scripts/build.sh` 完整构建。核心实际重编并链接生成 arm64 的 `build/Boome.app`。临时程序直接调用新静态库，确认 `1.3.1-boome.3`、ReleaseFast 和默认配置初始化；`ghostty_*` 导出符号集合与原库一致。
+
+复审按语法树逐声明核对删除范围，保留生产编码声明和字体版权说明，并清理未使用的开发验证入口及测试辅助方法。运行时字体、颜色数据、图标、C 头文件，以及 shell 集成的源文件和打包字节均与迁移前一致。修正后重新完整构建，并通过真实库验证带 arena 的配置参数解析，以及不带 arena 的 SSH 缓存新增、查询和删除；缓存操作使用临时状态目录。临时工具、验证程序和输出完成后清理。本轮没有运行实窗鼠标、键盘、跨窗口迁移或跨屏操作，也不沿用历史交互结果作为本轮证据。

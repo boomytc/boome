@@ -2,8 +2,6 @@
 //! system. These aren't restricted to syscalls or low-level operations, but
 //! also OS-specific features and conventions.
 
-const builtin = @import("builtin");
-
 const dbus = @import("dbus.zig");
 const desktop = @import("desktop.zig");
 const env = @import("env.zig");
@@ -65,17 +63,3 @@ pub const resourcesDir = resourcesdir.resourcesDir;
 pub const ResourcesDir = resourcesdir.ResourcesDir;
 pub const ShellEscapeWriter = shell.ShellEscapeWriter;
 pub const getKernelInfo = kernel_info.getKernelInfo;
-
-test {
-    _ = i18n;
-    _ = path;
-    _ = uri;
-    _ = shell;
-
-    if (comptime builtin.os.tag == .linux) {
-        _ = kernel_info;
-    } else if (comptime builtin.os.tag.isDarwin()) {
-        _ = mach;
-        _ = macos;
-    }
-}

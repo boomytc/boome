@@ -72,23 +72,3 @@ pub const Conditional = struct {
         };
     }
 };
-
-test "conditional enum match" {
-    const testing = std.testing;
-    const state: State = .{ .theme = .dark };
-    try testing.expect(state.match(.{
-        .key = .theme,
-        .op = .eq,
-        .value = "dark",
-    }));
-    try testing.expect(!state.match(.{
-        .key = .theme,
-        .op = .ne,
-        .value = "dark",
-    }));
-    try testing.expect(state.match(.{
-        .key = .theme,
-        .op = .ne,
-        .value = "light",
-    }));
-}

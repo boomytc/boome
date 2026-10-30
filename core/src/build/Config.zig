@@ -43,7 +43,6 @@ flatpak: bool = false,
 snap: bool = false,
 emit_terminfo: bool = false,
 emit_termcap: bool = false,
-emit_test_exe: bool = false,
 emit_themes: bool = false,
 emit_unicode_table_gen: bool = false,
 
@@ -61,7 +60,7 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
         return error.UnsupportedTarget;
     }
     const target = genericMacOSTarget(b, .aarch64);
-    var config: Config = .{
+    const config: Config = .{
         .optimize = optimize,
         .target = target,
         .wasm_target = .browser,
@@ -82,7 +81,6 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
         .emit_terminfo = optimize == .Debug,
         .emit_termcap = optimize == .Debug,
     };
-    config.emit_test_exe = b.option(bool, "emit-test-exe", "Install the core test executable") orelse false;
     for ([_][]const u8{
         "freetype", "libpng", "zlib", "oniguruma", "glslang", "spirv-cross", "simdutf",
     }) |dep| {

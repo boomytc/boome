@@ -102,18 +102,3 @@ pub fn write(self: *const Bytes, writer: *std.Io.Writer) std.Io.Writer.Error!usi
 
     return len;
 }
-
-test "bytes" {
-    const testing = std.testing;
-    var prng = std.Random.DefaultPrng.init(0);
-    var buf: [256]u8 = undefined;
-    var writer: std.Io.Writer = .fixed(&buf);
-    var v: Bytes = .{
-        .rand = prng.random(),
-        .min_len = buf.len,
-        .max_len = buf.len,
-    };
-    const gen = v.generator();
-    try gen.next(&writer, buf.len);
-    try testing.expectEqual(buf.len, writer.buffered().len);
-}

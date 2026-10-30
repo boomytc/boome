@@ -142,16 +142,3 @@ pub fn get(alloc: Allocator) !Entry {
 
     return result;
 }
-
-test {
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
-    const testing = std.testing;
-    var arena = ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const alloc = arena.allocator();
-
-    // We should be able to get an entry
-    const entry = try get(alloc);
-    try testing.expect(entry.shell != null);
-    try testing.expect(entry.home != null);
-}

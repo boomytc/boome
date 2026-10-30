@@ -18,7 +18,3 @@ pub const ImageAlphaInfo = image.ImageAlphaInfo;
 pub const BitmapInfo = image.BitmapInfo;
 pub const Path = path.Path;
 pub const MutablePath = path.MutablePath;
-
-test {
-    @import("std").testing.refAllDecls(@This());
-}

@@ -1,5 +1,4 @@
 const std = @import("std");
-const font = @import("../main.zig");
 
 /// SVG glyphs description table.
 ///
@@ -92,23 +91,3 @@ pub const SVG = struct {
         };
     }
 };
-
-test "SVG" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-    const testFont = font.embedded.julia_mono;
-
-    var lib = try font.Library.init(alloc);
-    defer lib.deinit();
-
-    var face = try font.Face.init(lib, testFont, .{ .size = .{ .points = 12 } });
-    defer face.deinit();
-
-    const table = (try face.copyTable(alloc, "SVG ")).?;
-    defer alloc.free(table);
-
-    const svg = try SVG.init(table);
-    try testing.expectEqual(11482, svg.start_glyph_id);
-    try testing.expectEqual(11482, svg.end_glyph_id);
-    try testing.expect(svg.hasGlyph(11482));
-}

@@ -1,5 +1,3 @@
-const std = @import("std");
-const testing = std.testing;
 const terminal = @import("../main.zig");
 
 /// A render placement is a way to position a Kitty graphics image onto

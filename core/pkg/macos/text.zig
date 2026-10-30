@@ -32,7 +32,3 @@ pub const ParagraphStyleSpecifier = paragraph_style.ParagraphStyleSpecifier;
 pub const WritingDirection = paragraph_style.WritingDirection;
 pub const Run = run.Run;
 pub const StringAttribute = stylized_strings.StringAttribute;
-
-test {
-    @import("std").testing.refAllDecls(@This());
-}

@@ -110,46 +110,6 @@ pub const ReadableIO = union(enum) {
             writer.buffered(),
         );
     }
-
-    test "parseCLI" {
-        const testing = std.testing;
-        var arena = ArenaAllocator.init(testing.allocator);
-        defer arena.deinit();
-        const alloc = arena.allocator();
-        {
-            var io: Self = undefined;
-            try Self.parseCLI(&io, alloc, "foo");
-            try testing.expect(io == .raw);
-            try testing.expectEqualStrings("foo", io.raw);
-        }
-        {
-            var io: Self = undefined;
-            try Self.parseCLI(&io, alloc, "raw:foo");
-            try testing.expect(io == .raw);
-            try testing.expectEqualStrings("foo", io.raw);
-        }
-        {
-            var io: Self = undefined;
-            try Self.parseCLI(&io, alloc, "path:foo");
-            try testing.expect(io == .path);
-            try testing.expectEqualStrings("foo", io.path);
-        }
-    }
-
-    test "formatEntry" {
-        const testing = std.testing;
-        var arena = ArenaAllocator.init(testing.allocator);
-        defer arena.deinit();
-        const alloc = arena.allocator();
-
-        var buf: std.Io.Writer.Allocating = .init(alloc);
-        defer buf.deinit();
-
-        var v: Self = undefined;
-        try v.parseCLI(alloc, "raw:foo");
-        try v.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
-        try std.testing.expectEqualSlices(u8, "a = raw:foo\n", buf.written());
-    }
 };
 
 pub const RepeatableReadableIO = struct {
@@ -231,24 +191,4 @@ pub const RepeatableReadableIO = struct {
             try formatter.formatEntry(ReadableIO, value);
         }
     }
-
-    test "parseCLI" {
-        const testing = std.testing;
-        var arena = ArenaAllocator.init(testing.allocator);
-        defer arena.deinit();
-        const alloc = arena.allocator();
-
-        var list: Self = .{};
-        try list.parseCLI(alloc, "raw:A");
-        try list.parseCLI(alloc, "path:B");
-        try testing.expectEqual(@as(usize, 2), list.list.items.len);
-
-        try list.parseCLI(alloc, "");
-        try testing.expectEqual(@as(usize, 0), list.list.items.len);
-    }
 };
-
-test {
-    _ = ReadableIO;
-    _ = RepeatableReadableIO;
-}

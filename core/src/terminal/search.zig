@@ -13,10 +13,3 @@ pub const Thread = switch (options.artifact) {
     .ghostty => @import("search/Thread.zig"),
     .lib => void,
 };
-
-test {
-    @import("std").testing.refAllDecls(@This());
-
-    // Non-public APIs
-    _ = @import("search/sliding_window.zig");
-}

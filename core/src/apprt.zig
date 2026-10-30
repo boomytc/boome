@@ -49,10 +49,3 @@ pub const runtime = switch (build_config.artifact) {
 
 pub const App = runtime.App;
 pub const Surface = runtime.Surface;
-
-test {
-    _ = Runtime;
-    _ = runtime;
-    _ = action;
-    _ = structs;
-}

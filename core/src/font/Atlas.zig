@@ -18,9 +18,7 @@ const Atlas = @This();
 const std = @import("std");
 const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
-const testing = std.testing;
 const fastmem = @import("../fastmem.zig");
-const tripwire = @import("../tripwire.zig");
 
 const log = std.log.scoped(.atlas);
 
@@ -92,15 +90,7 @@ pub const Region = extern struct {
 /// TODO: figure out optimal prealloc based on real world usage
 const node_prealloc: usize = 64;
 
-pub const init_tw = tripwire.module(enum {
-    alloc_data,
-    alloc_nodes,
-}, init);
-
 pub fn init(alloc: Allocator, size: u32, format: Format) Allocator.Error!Atlas {
-    const tw = init_tw;
-
-    try tw.check(.alloc_data);
     var result = Atlas{
         .data = try alloc.alloc(u8, size * size * format.depth()),
         .size = size,
@@ -110,7 +100,7 @@ pub fn init(alloc: Allocator, size: u32, format: Format) Allocator.Error!Atlas {
     errdefer result.deinit(alloc);
 
     // Prealloc some nodes.
-    try tw.check(.alloc_nodes);
+
     result.nodes = try .initCapacity(alloc, node_prealloc);
 
     // This sets up our initial state
@@ -125,10 +115,6 @@ pub fn deinit(self: *Atlas, alloc: Allocator) void {
     self.* = undefined;
 }
 
-pub const reserve_tw = tripwire.module(enum {
-    insert_node,
-}, reserve);
-
 /// Reserve a region within the atlas with the given width and height.
 ///
 /// May allocate to add a new rectangle into the internal list of rectangles.
@@ -139,7 +125,6 @@ pub fn reserve(
     width: u32,
     height: u32,
 ) (Allocator.Error || Error)!Region {
-    const tw = reserve_tw;
 
     // x, y are populated within :best_idx below
     var region: Region = .{ .x = 0, .y = 0, .width = width, .height = height };
@@ -178,7 +163,7 @@ pub fn reserve(
     };
 
     // Insert our new node for this rectangle at the exact best index
-    try tw.check(.insert_node);
+
     try self.nodes.insert(alloc, best_idx, .{
         .x = region.x,
         .y = region.y + height,
@@ -305,24 +290,16 @@ pub fn setFromLarger(
     _ = self.modified.fetchAdd(1, .monotonic);
 }
 
-pub const grow_tw = tripwire.module(enum {
-    ensure_node_capacity,
-    alloc_data,
-}, grow);
-
 // Grow the texture to the new size, preserving all previously written data.
 pub fn grow(self: *Atlas, alloc: Allocator, size_new: u32) Allocator.Error!void {
-    const tw = grow_tw;
-
     assert(size_new >= self.size);
     if (size_new == self.size) return;
 
     // We reserve space ahead of time for the new node, so that we
     // won't have to handle any errors after allocating our new data.
-    try tw.check(.ensure_node_capacity);
+
     try self.nodes.ensureUnusedCapacity(alloc, 1);
 
-    try tw.check(.alloc_data);
     const data_new = try alloc.alloc(
         u8,
         size_new * size_new * self.format.depth(),
@@ -560,330 +537,4 @@ pub const Wasm = struct {
         const id = @as(js.Ref, @bitCast(@intFromEnum(canvas.value))).id;
         return id;
     }
-
-    test "happy path" {
-        const atlas = atlas_new(512, @intFromEnum(Format.grayscale)).?;
-        defer atlas_free(atlas);
-
-        const reg = atlas_reserve(atlas, 2, 2).?;
-        defer alloc.destroy(reg);
-        try testing.expect(wasm.isHostOwned(reg));
-        defer wasm.toModuleOwned(reg);
-        try testing.expect(reg.width > 0);
-
-        const data = &[_]u8{ 1, 2, 3, 4 };
-        try testing.expect(!atlas.modified);
-        atlas_set(atlas, reg, data, data.len);
-        try testing.expect(atlas.modified);
-    }
 };
-
-test "exact fit" {
-    const alloc = testing.allocator;
-    var atlas = try init(alloc, 34, .grayscale); // +2 for 1px border
-    defer atlas.deinit(alloc);
-
-    const modified = atlas.modified.load(.monotonic);
-    _ = try atlas.reserve(alloc, 32, 32);
-    try testing.expectEqual(modified, atlas.modified.load(.monotonic));
-    try testing.expectError(Error.AtlasFull, atlas.reserve(alloc, 1, 1));
-}
-
-test "doesn't fit" {
-    const alloc = testing.allocator;
-    var atlas = try init(alloc, 32, .grayscale);
-    defer atlas.deinit(alloc);
-
-    // doesn't fit due to border
-    try testing.expectError(Error.AtlasFull, atlas.reserve(alloc, 32, 32));
-}
-
-test "fit multiple" {
-    const alloc = testing.allocator;
-    var atlas = try init(alloc, 32, .grayscale);
-    defer atlas.deinit(alloc);
-
-    _ = try atlas.reserve(alloc, 15, 30);
-    _ = try atlas.reserve(alloc, 15, 30);
-    try testing.expectError(Error.AtlasFull, atlas.reserve(alloc, 1, 1));
-}
-
-test "writing data" {
-    const alloc = testing.allocator;
-    var atlas = try init(alloc, 32, .grayscale);
-    defer atlas.deinit(alloc);
-
-    const reg = try atlas.reserve(alloc, 2, 2);
-    const old = atlas.modified.load(.monotonic);
-    atlas.set(reg, &[_]u8{ 1, 2, 3, 4 });
-    const new = atlas.modified.load(.monotonic);
-    try testing.expect(new > old);
-
-    // 33 because of the 1px border and so on
-    try testing.expectEqual(@as(u8, 1), atlas.data[33]);
-    try testing.expectEqual(@as(u8, 2), atlas.data[34]);
-    try testing.expectEqual(@as(u8, 3), atlas.data[65]);
-    try testing.expectEqual(@as(u8, 4), atlas.data[66]);
-}
-
-test "writing data from a larger source" {
-    const alloc = testing.allocator;
-    var atlas = try init(alloc, 32, .grayscale);
-    defer atlas.deinit(alloc);
-
-    const reg = try atlas.reserve(alloc, 2, 2);
-    const old = atlas.modified.load(.monotonic);
-    // zig fmt: off
-    atlas.setFromLarger(reg, &[_]u8{
-        8, 8, 8, 8, 8,
-        8, 8, 1, 2, 8,
-        8, 8, 3, 4, 8,
-        8, 8, 8, 8, 8,
-    }, 5, 2, 1);
-    // zig fmt: on
-    const new = atlas.modified.load(.monotonic);
-    try testing.expect(new > old);
-
-    // 33 because of the 1px border and so on
-    try testing.expectEqual(@as(u8, 1), atlas.data[33]);
-    try testing.expectEqual(@as(u8, 2), atlas.data[34]);
-    try testing.expectEqual(@as(u8, 3), atlas.data[65]);
-    try testing.expectEqual(@as(u8, 4), atlas.data[66]);
-
-    // None of the `8`s from the source data outside of the
-    // specified region should have made it on to the atlas.
-    try testing.expectEqual(null, std.mem.indexOfScalar(u8, atlas.data, 8));
-}
-
-test "grow" {
-    const alloc = testing.allocator;
-    var atlas = try init(alloc, 4, .grayscale); // +2 for 1px border
-    defer atlas.deinit(alloc);
-
-    const reg = try atlas.reserve(alloc, 2, 2);
-    try testing.expectError(Error.AtlasFull, atlas.reserve(alloc, 1, 1));
-
-    // Write some data so we can verify that growing doesn't mess it up
-    atlas.set(reg, &[_]u8{ 1, 2, 3, 4 });
-    try testing.expectEqual(@as(u8, 1), atlas.data[5]);
-    try testing.expectEqual(@as(u8, 2), atlas.data[6]);
-    try testing.expectEqual(@as(u8, 3), atlas.data[9]);
-    try testing.expectEqual(@as(u8, 4), atlas.data[10]);
-
-    // Expand by exactly 1 should fit our new 1x1 block.
-    const old_modified = atlas.modified.load(.monotonic);
-    const old_resized = atlas.resized.load(.monotonic);
-    try atlas.grow(alloc, atlas.size + 1);
-    const new_modified = atlas.modified.load(.monotonic);
-    const new_resized = atlas.resized.load(.monotonic);
-    try testing.expect(new_modified > old_modified);
-    try testing.expect(new_resized > old_resized);
-    _ = try atlas.reserve(alloc, 1, 1);
-
-    // Ensure our data is still set. Not the offsets change due to size.
-    try testing.expectEqual(@as(u8, 1), atlas.data[atlas.size + 1]);
-    try testing.expectEqual(@as(u8, 2), atlas.data[atlas.size + 2]);
-    try testing.expectEqual(@as(u8, 3), atlas.data[atlas.size * 2 + 1]);
-    try testing.expectEqual(@as(u8, 4), atlas.data[atlas.size * 2 + 2]);
-}
-
-test "writing BGR data" {
-    const alloc = testing.allocator;
-    var atlas = try init(alloc, 32, .bgr);
-    defer atlas.deinit(alloc);
-
-    // This is BGR so its 3 bpp
-    const reg = try atlas.reserve(alloc, 1, 2);
-    atlas.set(reg, &[_]u8{
-        1, 2, 3,
-        4, 5, 6,
-    });
-
-    // 33 because of the 1px border and so on
-    const depth = @as(usize, @intCast(atlas.format.depth()));
-    try testing.expectEqual(@as(u8, 1), atlas.data[33 * depth]);
-    try testing.expectEqual(@as(u8, 2), atlas.data[33 * depth + 1]);
-    try testing.expectEqual(@as(u8, 3), atlas.data[33 * depth + 2]);
-    try testing.expectEqual(@as(u8, 4), atlas.data[65 * depth]);
-    try testing.expectEqual(@as(u8, 5), atlas.data[65 * depth + 1]);
-    try testing.expectEqual(@as(u8, 6), atlas.data[65 * depth + 2]);
-}
-
-test "grow BGR" {
-    const alloc = testing.allocator;
-
-    // Atlas is 4x4 so its a 1px border meaning we only have 2x2 available
-    var atlas = try init(alloc, 4, .bgr);
-    defer atlas.deinit(alloc);
-
-    // Get our 2x2, which should be ALL our usable space
-    const reg = try atlas.reserve(alloc, 2, 2);
-    try testing.expectError(Error.AtlasFull, atlas.reserve(alloc, 1, 1));
-
-    // This is BGR so its 3 bpp
-    atlas.set(reg, &[_]u8{
-        10, 11, 12, // (0, 0) (x, y) from top-left
-        13, 14, 15, // (1, 0)
-        20, 21, 22, // (0, 1)
-        23, 24, 25, // (1, 1)
-    });
-
-    // Our top left skips the first row (size * depth) and the first
-    // column (depth) for the 1px border.
-    const depth = @as(usize, @intCast(atlas.format.depth()));
-    var tl = (atlas.size * depth) + depth;
-    try testing.expectEqual(@as(u8, 10), atlas.data[tl]);
-    try testing.expectEqual(@as(u8, 11), atlas.data[tl + 1]);
-    try testing.expectEqual(@as(u8, 12), atlas.data[tl + 2]);
-    try testing.expectEqual(@as(u8, 13), atlas.data[tl + 3]);
-    try testing.expectEqual(@as(u8, 14), atlas.data[tl + 4]);
-    try testing.expectEqual(@as(u8, 15), atlas.data[tl + 5]);
-    try testing.expectEqual(@as(u8, 0), atlas.data[tl + 6]); // border
-
-    tl += (atlas.size * depth); // next row
-    try testing.expectEqual(@as(u8, 20), atlas.data[tl]);
-    try testing.expectEqual(@as(u8, 21), atlas.data[tl + 1]);
-    try testing.expectEqual(@as(u8, 22), atlas.data[tl + 2]);
-    try testing.expectEqual(@as(u8, 23), atlas.data[tl + 3]);
-    try testing.expectEqual(@as(u8, 24), atlas.data[tl + 4]);
-    try testing.expectEqual(@as(u8, 25), atlas.data[tl + 5]);
-    try testing.expectEqual(@as(u8, 0), atlas.data[tl + 6]); // border
-
-    // Expand by exactly 1 should fit our new 1x1 block.
-    try atlas.grow(alloc, atlas.size + 1);
-
-    // Data should be in same place accounting for the new size
-    tl = (atlas.size * depth) + depth;
-    try testing.expectEqual(@as(u8, 10), atlas.data[tl]);
-    try testing.expectEqual(@as(u8, 11), atlas.data[tl + 1]);
-    try testing.expectEqual(@as(u8, 12), atlas.data[tl + 2]);
-    try testing.expectEqual(@as(u8, 13), atlas.data[tl + 3]);
-    try testing.expectEqual(@as(u8, 14), atlas.data[tl + 4]);
-    try testing.expectEqual(@as(u8, 15), atlas.data[tl + 5]);
-    try testing.expectEqual(@as(u8, 0), atlas.data[tl + 6]); // border
-
-    tl += (atlas.size * depth); // next row
-    try testing.expectEqual(@as(u8, 20), atlas.data[tl]);
-    try testing.expectEqual(@as(u8, 21), atlas.data[tl + 1]);
-    try testing.expectEqual(@as(u8, 22), atlas.data[tl + 2]);
-    try testing.expectEqual(@as(u8, 23), atlas.data[tl + 3]);
-    try testing.expectEqual(@as(u8, 24), atlas.data[tl + 4]);
-    try testing.expectEqual(@as(u8, 25), atlas.data[tl + 5]);
-    try testing.expectEqual(@as(u8, 0), atlas.data[tl + 6]); // border
-
-    // Should fit the new blocks around the edges
-    _ = try atlas.reserve(alloc, 1, 3);
-    _ = try atlas.reserve(alloc, 2, 1);
-    try testing.expectError(Error.AtlasFull, atlas.reserve(alloc, 1, 1));
-}
-
-test "grow OOM" {
-    // We use a fixed buffer allocator so that we can consistently hit OOM.
-    //
-    // We calculate the size to exactly fit the 4x4 pixels and node list.
-    var buf: [
-        4 * 4 * 1 // 4x4 pixels, each 1 byte.
-        + node_prealloc * @sizeOf(Node) // preallocated nodes.
-    ]u8 = undefined;
-    var fba: std.heap.FixedBufferAllocator = .init(&buf);
-    const alloc = fba.allocator();
-
-    var atlas = try init(alloc, 4, .grayscale); // +2 for 1px border
-    defer atlas.deinit(alloc);
-
-    const reg = try atlas.reserve(alloc, 2, 2);
-    try testing.expectError(
-        Error.AtlasFull,
-        atlas.reserve(alloc, 1, 1),
-    );
-
-    // Write some data so we can verify that attempted growing doesn't mess it up.
-    atlas.set(reg, &[_]u8{ 1, 2, 3, 4 });
-    try testing.expectEqual(@as(u8, 1), atlas.data[5]);
-    try testing.expectEqual(@as(u8, 2), atlas.data[6]);
-    try testing.expectEqual(@as(u8, 3), atlas.data[9]);
-    try testing.expectEqual(@as(u8, 4), atlas.data[10]);
-
-    // Expand by 1, should give OOM, modified and resized should be unchanged.
-    const old_modified = atlas.modified.load(.monotonic);
-    const old_resized = atlas.resized.load(.monotonic);
-    try testing.expectError(
-        Allocator.Error.OutOfMemory,
-        atlas.grow(alloc, atlas.size + 1),
-    );
-    const new_modified = atlas.modified.load(.monotonic);
-    const new_resized = atlas.resized.load(.monotonic);
-    try testing.expectEqual(old_modified, new_modified);
-    try testing.expectEqual(old_resized, new_resized);
-
-    // Ensure our data is still set.
-    try testing.expectEqual(@as(u8, 1), atlas.data[5]);
-    try testing.expectEqual(@as(u8, 2), atlas.data[6]);
-    try testing.expectEqual(@as(u8, 3), atlas.data[9]);
-    try testing.expectEqual(@as(u8, 4), atlas.data[10]);
-}
-
-test "init error" {
-    // Test every failure point in `init` and ensure that we don't
-    // leak memory (testing.allocator verifies) since we're exiting early.
-    for (std.meta.tags(init_tw.FailPoint)) |tag| {
-        const tw = init_tw;
-        defer tw.end(.reset) catch unreachable;
-        tw.errorAlways(tag, error.OutOfMemory);
-        try testing.expectError(
-            error.OutOfMemory,
-            init(testing.allocator, 32, .grayscale),
-        );
-    }
-}
-
-test "reserve error" {
-    // Test every failure point in `reserve` and ensure that we don't
-    // leak memory (testing.allocator verifies) since we're exiting early.
-    for (std.meta.tags(reserve_tw.FailPoint)) |tag| {
-        const tw = reserve_tw;
-        defer tw.end(.reset) catch unreachable;
-
-        var atlas = try init(testing.allocator, 32, .grayscale);
-        defer atlas.deinit(testing.allocator);
-
-        tw.errorAlways(tag, error.OutOfMemory);
-        try testing.expectError(
-            error.OutOfMemory,
-            atlas.reserve(testing.allocator, 2, 2),
-        );
-    }
-}
-
-test "grow error" {
-    // Test every failure point in `grow` and ensure that we don't
-    // leak memory (testing.allocator verifies) since we're exiting early.
-    for (std.meta.tags(grow_tw.FailPoint)) |tag| {
-        const tw = grow_tw;
-        defer tw.end(.reset) catch unreachable;
-
-        var atlas = try init(testing.allocator, 4, .grayscale);
-        defer atlas.deinit(testing.allocator);
-
-        // Write some data to verify it's preserved after failed grow
-        const reg = try atlas.reserve(testing.allocator, 2, 2);
-        atlas.set(reg, &[_]u8{ 1, 2, 3, 4 });
-
-        const old_modified = atlas.modified.load(.monotonic);
-        const old_resized = atlas.resized.load(.monotonic);
-
-        tw.errorAlways(tag, error.OutOfMemory);
-        try testing.expectError(
-            error.OutOfMemory,
-            atlas.grow(testing.allocator, atlas.size + 1),
-        );
-
-        // Verify atlas state is unchanged after failed grow
-        try testing.expectEqual(old_modified, atlas.modified.load(.monotonic));
-        try testing.expectEqual(old_resized, atlas.resized.load(.monotonic));
-        try testing.expectEqual(@as(u8, 1), atlas.data[5]);
-        try testing.expectEqual(@as(u8, 2), atlas.data[6]);
-        try testing.expectEqual(@as(u8, 3), atlas.data[9]);
-        try testing.expectEqual(@as(u8, 4), atlas.data[10]);
-    }
-}

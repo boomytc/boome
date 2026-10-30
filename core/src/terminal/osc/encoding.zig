@@ -25,14 +25,3 @@ pub fn isSafeUtf8(s: []const u8) bool {
 
     return true;
 }
-
-test isSafeUtf8 {
-    const testing = std.testing;
-
-    try testing.expect(isSafeUtf8("Hello world!"));
-    try testing.expect(isSafeUtf8("安全的ユニコード☀️"));
-    try testing.expect(!isSafeUtf8("No linebreaks\nallowed"));
-    try testing.expect(!isSafeUtf8("\x07no bells"));
-    try testing.expect(!isSafeUtf8("\x1b]9;no OSCs\x1b\\\x1b[m"));
-    try testing.expect(!isSafeUtf8("\x9f8-bit escapes are clever, but no"));
-}

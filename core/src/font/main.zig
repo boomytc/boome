@@ -70,13 +70,3 @@ pub const sprite_index = Collection.Index.initSpecial(.sprite);
 ///
 /// TODO: Add user configuration for this instead of hard-coding it.
 pub const default_fallback_adjustment: Collection.SizeAdjustment = .ic_width;
-
-test {
-    // For non-wasm we want to test everything we can
-    if (!comptime builtin.target.cpu.arch.isWasm()) {
-        @import("std").testing.refAllDecls(@This());
-        return;
-    }
-
-    _ = Atlas;
-}

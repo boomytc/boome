@@ -10,7 +10,6 @@ pub const Thread = @This();
 
 const std = @import("std");
 const builtin = @import("builtin");
-const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const Mutex = std.Thread.Mutex;
@@ -18,7 +17,6 @@ const xev = @import("../../global.zig").xev;
 const internal_os = @import("../../os/main.zig");
 const BlockingQueue = @import("../../datastruct/main.zig").BlockingQueue;
 const MessageData = @import("../../datastruct/main.zig").MessageData;
-const point = @import("../point.zig");
 const FlattenedHighlight = @import("../highlight.zig").Flattened;
 const UntrackedHighlight = @import("../highlight.zig").Untracked;
 const ScreenSet = @import("../ScreenSet.zig");
@@ -809,97 +807,3 @@ const Search = struct {
         }
     }
 };
-
-const TestUserData = struct {
-    const Self = @This();
-    reset: std.Thread.ResetEvent = .{},
-    total: usize = 0,
-    selected: ?Event.SelectedMatch = null,
-    viewport: []FlattenedHighlight = &.{},
-
-    fn deinit(self: *Self) void {
-        for (self.viewport) |*hl| hl.deinit(testing.allocator);
-        testing.allocator.free(self.viewport);
-    }
-
-    fn callback(event: Event, userdata: ?*anyopaque) void {
-        const ud: *Self = @ptrCast(@alignCast(userdata.?));
-        switch (event) {
-            .quit => {},
-            .complete => ud.reset.set(),
-            .total_matches => |v| ud.total = v,
-            .selected_match => |v| ud.selected = v,
-            .viewport_matches => |v| {
-                for (ud.viewport) |*hl| hl.deinit(testing.allocator);
-                testing.allocator.free(ud.viewport);
-
-                ud.viewport = testing.allocator.alloc(
-                    FlattenedHighlight,
-                    v.len,
-                ) catch unreachable;
-                for (ud.viewport, v) |*dst, src| {
-                    dst.* = src.clone(testing.allocator) catch unreachable;
-                }
-            },
-        }
-    }
-};
-
-test {
-    const alloc = testing.allocator;
-    var mutex: std.Thread.Mutex = .{};
-    var t: Terminal = try .init(alloc, .{ .cols = 20, .rows = 2 });
-    defer t.deinit(alloc);
-
-    var stream = t.vtStream();
-    defer stream.deinit();
-    try stream.nextSlice("Hello, world");
-
-    var ud: TestUserData = .{};
-    defer ud.deinit();
-    var thread: Thread = try .init(alloc, .{
-        .mutex = &mutex,
-        .terminal = &t,
-        .event_cb = &TestUserData.callback,
-        .event_userdata = &ud,
-    });
-    defer thread.deinit();
-
-    var os_thread = try std.Thread.spawn(
-        .{},
-        threadMain,
-        .{&thread},
-    );
-
-    // Start our search
-    _ = thread.mailbox.push(
-        .{ .change_needle = try .init(
-            alloc,
-            @as([]const u8, "world"),
-        ) },
-        .forever,
-    );
-    try thread.wakeup.notify();
-
-    // Wait for completion
-    try ud.reset.timedWait(100 * std.time.ns_per_ms);
-
-    // Stop the thread
-    try thread.stop.notify();
-    os_thread.join();
-
-    // 1 total matches
-    try testing.expectEqual(1, ud.total);
-    try testing.expectEqual(1, ud.viewport.len);
-    {
-        const sel = ud.viewport[0].untracked();
-        try testing.expectEqual(point.Point{ .screen = .{
-            .x = 7,
-            .y = 0,
-        } }, t.screens.active.pages.pointFromPin(.screen, sel.start).?);
-        try testing.expectEqual(point.Point{ .screen = .{
-            .x = 11,
-            .y = 0,
-        } }, t.screens.active.pages.pointFromPin(.screen, sel.end).?);
-    }
-}

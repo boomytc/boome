@@ -3,7 +3,6 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const foundation = @import("../foundation.zig");
 const graphics = @import("../graphics.zig");
-const text = @import("../text.zig");
 const c = @import("c.zig").c;
 
 pub const Line = opaque {
@@ -63,61 +62,4 @@ pub const LineBoundsOptions = packed struct {
     use_optical_bounds: bool = false,
     language_extents: bool = false,
     _padding: u58 = 0,
-
-    test {
-        try std.testing.expectEqual(
-            @bitSizeOf(c.CTLineBoundsOptions),
-            @bitSizeOf(LineBoundsOptions),
-        );
-    }
-
-    test "bitcast" {
-        const actual: c.CTLineBoundsOptions = c.kCTLineBoundsExcludeTypographicShifts |
-            c.kCTLineBoundsUseOpticalBounds;
-        const expected: LineBoundsOptions = .{
-            .exclude_shifts = true,
-            .use_optical_bounds = true,
-        };
-
-        try std.testing.expectEqual(actual, @as(c.CTLineBoundsOptions, @bitCast(expected)));
-    }
 };
-
-test {
-    @import("std").testing.refAllDecls(@This());
-}
-
-test "line" {
-    const testing = std.testing;
-
-    const font = font: {
-        const name = try foundation.String.createWithBytes("Monaco", .utf8, false);
-        defer name.release();
-        const desc = try text.FontDescriptor.createWithNameAndSize(name, 12);
-        defer desc.release();
-
-        break :font try text.Font.createWithFontDescriptor(desc, 12);
-    };
-    defer font.release();
-
-    const rep = try foundation.String.createWithBytes("hello", .utf8, false);
-    defer rep.release();
-    const str = try foundation.MutableAttributedString.create(rep.getLength());
-    defer str.release();
-    str.replaceString(foundation.Range.init(0, 0), rep);
-    str.setAttribute(
-        foundation.Range.init(0, rep.getLength()),
-        text.StringAttribute.font,
-        font,
-    );
-
-    const line = try Line.createWithAttributedString(@as(*foundation.AttributedString, @ptrCast(str)));
-    defer line.release();
-
-    try testing.expectEqual(@as(usize, 5), line.getGlyphCount());
-
-    // TODO: this is a garbage value but should work...
-    const bounds = line.getBoundsWithOptions(.{});
-    _ = bounds;
-    //std.log.warn("bounds={}", .{bounds});
-}

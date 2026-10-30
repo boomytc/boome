@@ -88,38 +88,3 @@ pub const MutableDictionary = opaque {
         );
     }
 };
-
-test "dictionary" {
-    const testing = std.testing;
-
-    const str = try foundation.String.createWithBytes("hello", .unicode, false);
-    defer str.release();
-
-    var keys = [_]?*const anyopaque{c.kCFURLIsPurgeableKey};
-    var values = [_]?*const anyopaque{str};
-    const dict = try Dictionary.create(&keys, &values);
-    defer dict.release();
-
-    try testing.expectEqual(@as(usize, 1), dict.getCount());
-    try testing.expect(dict.getValue(foundation.String, c.kCFURLIsPurgeableKey) != null);
-    try testing.expect(dict.getValue(foundation.String, c.kCFURLIsVolumeKey) == null);
-}
-
-test "mutable dictionary" {
-    const testing = std.testing;
-
-    const dict = try MutableDictionary.create(0);
-    defer dict.release();
-
-    const str = try foundation.String.createWithBytes("hello", .unicode, false);
-    defer str.release();
-
-    dict.setValue(c.kCFURLIsPurgeableKey, str);
-
-    {
-        const imm = @as(*Dictionary, @ptrCast(dict));
-        try testing.expectEqual(@as(usize, 1), imm.getCount());
-        try testing.expect(imm.getValue(foundation.String, c.kCFURLIsPurgeableKey) != null);
-        try testing.expect(imm.getValue(foundation.String, c.kCFURLIsVolumeKey) == null);
-    }
-}

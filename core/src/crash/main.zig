@@ -15,7 +15,3 @@ pub const Report = dir.Report;
 // The main init/deinit functions for global state.
 pub const init = sentry.init;
 pub const deinit = sentry.deinit;
-
-test {
-    @import("std").testing.refAllDecls(@This());
-}

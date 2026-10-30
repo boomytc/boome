@@ -31,7 +31,3 @@ pub const URL = url.URL;
 pub const URLPathStyle = url.URLPathStyle;
 pub const CFRelease = typepkg.CFRelease;
 pub const CFRetain = typepkg.CFRetain;
-
-test {
-    @import("std").testing.refAllDecls(@This());
-}

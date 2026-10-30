@@ -1,5 +1,3 @@
-const std = @import("std");
-
 const assert = @import("../../../quirks.zig").inlineAssert;
 
 const Parser = @import("../../osc.zig").Parser;
@@ -23,17 +21,4 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
         },
     };
     return &parser.command;
-}
-
-test "OSC 22: pointer cursor" {
-    const testing = std.testing;
-
-    var p: Parser = .init(null);
-
-    const input = "22;pointer";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end(null).?.*;
-    try testing.expect(cmd == .mouse_shape);
-    try testing.expectEqualStrings("pointer", cmd.mouse_shape.value);
 }

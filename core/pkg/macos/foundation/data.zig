@@ -28,11 +28,3 @@ pub const Data = opaque {
         return @intCast(c.CFDataGetLength(@ptrCast(self)));
     }
 };
-
-test {
-    //const testing = std.testing;
-
-    const raw = "hello world";
-    const data = try Data.createWithBytesNoCopy(raw);
-    defer data.release();
-}

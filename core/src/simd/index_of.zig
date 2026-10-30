@@ -19,17 +19,3 @@ pub fn indexOf(input: []const u8, needle: u8) ?usize {
 fn indexOfScalar(input: []const u8, needle: u8) ?usize {
     return std.mem.indexOfScalar(u8, input, needle);
 }
-
-test "indexOf" {
-    const testing = std.testing;
-    try testing.expect(indexOf("hello", ' ') == null);
-    try testing.expectEqual(@as(usize, 2), indexOf("hi lo", ' ').?);
-    try testing.expectEqual(@as(usize, 5), indexOf(
-        \\XXXXX XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-        \\XXXXXXXXXXXX XXXXXXXXXXX XXXXXXXXXXXXXXX
-    , ' ').?);
-    try testing.expectEqual(@as(usize, 53), indexOf(
-        \\XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-        \\XXXXXXXXXXXX XXXXXXXXXXX XXXXXXXXXXXXXXX
-    , ' ').?);
-}

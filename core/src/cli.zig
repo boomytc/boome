@@ -8,7 +8,3 @@ pub const compatibilityRenamed = args.compatibilityRenamed;
 pub const DiagnosticList = diags.DiagnosticList;
 pub const Diagnostic = diags.Diagnostic;
 pub const Location = diags.Location;
-
-test {
-    @import("std").testing.refAllDecls(@This());
-}

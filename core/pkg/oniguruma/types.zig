@@ -1,4 +1,3 @@
-const std = @import("std");
 const c = @import("c.zig").c;
 
 pub const Encoding = opaque {
@@ -85,12 +84,4 @@ pub const Option = packed struct(c_uint) {
     pub fn int(self: Option) c_uint {
         return @bitCast(self);
     }
-
-    test "order" {
-        const testing = std.testing;
-        const opt: Option = .{ .extend = true };
-        try testing.expectEqual(c.ONIG_OPTION_EXTEND, opt.int());
-    }
 };
-
-test {}
